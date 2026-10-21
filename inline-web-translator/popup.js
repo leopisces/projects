@@ -6,16 +6,18 @@
     var provider = document.getElementById('provider');
     var blockWidget = document.getElementById('blockGoogleWidget');
     var skipChinese = document.getElementById('skipChinesePages');
+    var hoverReveal = document.getElementById('hoverReveal');
 
     chrome.storage.local.get({ fileConfig: null }, function (local) {
       var cfg = local && local.fileConfig;
       var fileProvider = cfg && cfg.provider ? cfg.provider : '';
-      chrome.storage.sync.get(['enabled', 'provider', 'blockGoogleWidget', 'skipChinesePages'], function (res) {
+      chrome.storage.sync.get(['enabled', 'provider', 'blockGoogleWidget', 'skipChinesePages', 'hoverReveal'], function (res) {
         toggle.checked = res.enabled !== false;
         var chosen = res.provider || fileProvider || 'google';
         provider.value = chosen === 'deepseek' || chosen === 'ark' ? chosen : 'google';
         blockWidget.checked = res.blockGoogleWidget !== false;
         skipChinese.checked = res.skipChinesePages !== false;
+        hoverReveal.checked = res.hoverReveal === true;
       });
     });
 
@@ -29,6 +31,10 @@
 
     skipChinese.addEventListener('change', function () {
       chrome.storage.sync.set({ skipChinesePages: skipChinese.checked });
+    });
+
+    hoverReveal.addEventListener('change', function () {
+      chrome.storage.sync.set({ hoverReveal: hoverReveal.checked });
     });
 
     provider.addEventListener('change', function () {

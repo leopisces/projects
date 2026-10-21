@@ -61,3 +61,19 @@ ppp-trans.ppp-sub-overlay {
 ppp-trans.ppp-sub-overlay:empty {
   display: none;
 }
+
+html.ppp-hover-mode ppp-trans {
+  display: none;
+}
+
+html.ppp-hover-mode ppp-trans.ppp-reveal {
+  display: block;
+}
+
+html.ppp-hover-mode ppp-trans.ppp-sub-overlay {
+  display: none;
+}
+
+html.ppp-hover-mode .ppp-player-hover ppp-trans.ppp-sub-overlay {
+  display: block;
+}

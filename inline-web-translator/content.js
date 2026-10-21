@@ -55,7 +55,8 @@
   const PREFETCH_AHEAD_GOOGLE = 40;
   const PREFETCH_AHEAD_DEEPSEEK = 25;
 
-  const settings = { enabled: true, provider: 'google', blockGoogleWidget: true, skipChinesePages: true, fileConfig: null };
+  const settings = { enabled: true, provider: 'google', blockGoogleWidget: true, skipChinesePages: true, hoverReveal: false, fileConfig: null };
+  let chinesePageSkip = false;
   const TARGET_LANG = 'zh-CN';
   const memo = new Map();
   const inflight = new Map();
@@ -884,6 +885,13 @@
     el.classList.add('notranslate', 'ppp-sub-overlay');
     if (!settings.enabled) el.classList.add('ppp-hidden');
     container.appendChild(el);
+    if (!container.__pppHoverBound) {
+      container.__pppHoverBound = true;
+      try {
+        container.addEventListener('mouseenter', function () { container.classList.add('ppp-player-hover'); });
+        container.addEventListener('mouseleave', function () { container.classList.remove('ppp-player-hover'); });
+      } catch (e) { /* 忽略 */ }
+    }
     entry = { el: el, block: null, cueText: '', timer: null };
     subOverlays.set(container, entry);
     return entry;
@@ -1268,6 +1276,7 @@
         processBlock(block, nodes, true);
         return;
       }
+      if (chinesePageSkip) return;
       scheduleBlock(block, nodes);
     });
   }
@@ -1397,6 +1406,73 @@
     } catch (e) { /* 清理失败不影响翻译 */ }
   }
 
+  function applyHoverMode() {
+    try {
+      document.documentElement.classList.toggle('ppp-hover-mode', !!settings.hoverReveal);
+    } catch (e) { /* 忽略 */ }
+  }
+
+  function transForSent(sent) {
+    let node = sent;
+    while (node && node.nextSibling) {
+      node = node.nextSibling;
+      if (node.nodeType === 1 && node.tagName === TRANS_TAG.toUpperCase()) return node;
+    }
+    return null;
+  }
+
+  function revealTrans(trans) {
+    if (!trans) return;
+    if (trans.__pppHideTimer) {
+      clearTimeout(trans.__pppHideTimer);
+      trans.__pppHideTimer = null;
+    }
+    trans.classList.add('ppp-reveal');
+  }
+
+  function hideTransSoon(trans) {
+    if (!trans) return;
+    if (trans.__pppHideTimer) clearTimeout(trans.__pppHideTimer);
+    trans.__pppHideTimer = setTimeout(function () {
+      trans.__pppHideTimer = null;
+      trans.classList.remove('ppp-reveal');
+    }, 120);
+  }
+
+  function setupHoverReveal() {
+    if (setupHoverReveal.done) return;
+    setupHoverReveal.done = true;
+    document.addEventListener('mouseover', function (event) {
+      if (!settings.hoverReveal) return;
+      const target = event.target;
+      if (!target || !target.closest) return;
+      const sent = target.closest(SENT_TAG);
+      if (sent) {
+        revealTrans(transForSent(sent));
+        return;
+      }
+      const trans = target.closest(TRANS_TAG);
+      if (trans) revealTrans(trans);
+    });
+    document.addEventListener('mouseout', function (event) {
+      if (!settings.hoverReveal) return;
+      const target = event.target;
+      if (!target || !target.closest) return;
+      const related = event.relatedTarget;
+      const sent = target.closest(SENT_TAG);
+      if (sent) {
+        if (related && related.closest && related.closest(SENT_TAG) === sent) return;
+        hideTransSoon(transForSent(sent));
+        return;
+      }
+      const trans = target.closest(TRANS_TAG);
+      if (trans) {
+        if (related && related.closest && (related.closest(TRANS_TAG) === trans || related.closest(SENT_TAG))) return;
+        hideTransSoon(trans);
+      }
+    });
+  }
+
   function pageIsChinese() {
     try {
       const lang = (document.documentElement.getAttribute('lang') || '').toLowerCase();
@@ -1431,12 +1507,16 @@
 
     chrome.storage.local.get({ fileConfig: null }, function (local) {
       settings.fileConfig = (local && local.fileConfig) || null;
-      chrome.storage.sync.get({ enabled: true, provider: '', blockGoogleWidget: true, skipChinesePages: true }, function (res) {
+      chrome.storage.sync.get({ enabled: true, provider: '', blockGoogleWidget: true, skipChinesePages: true, hoverReveal: false }, function (res) {
         settings.enabled = res.enabled !== false;
         const chosenProvider = res.provider || (settings.fileConfig && settings.fileConfig.provider) || 'google';
         settings.provider = chosenProvider === 'deepseek' || chosenProvider === 'ark' ? chosenProvider : 'google';
         settings.blockGoogleWidget = res.blockGoogleWidget !== false;
         settings.skipChinesePages = res.skipChinesePages !== false;
+        settings.hoverReveal = res.hoverReveal === true;
+        chinesePageSkip = settings.skipChinesePages && pageIsChinese();
+        applyHoverMode();
+        setupHoverReveal();
         prefetchBatchSize = readIntOverride('pppSubBatch', isLlmProvider() ? 12 : 8);
         prefetchAheadSec = readIntOverride('pppSubAhead', isLlmProvider() ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE);
         initStats();
@@ -1445,9 +1525,6 @@
         prefetchAllVideos();
         setTimeout(function () {
           if (!settings.enabled) return;
-          if (settings.skipChinesePages && pageIsChinese()) {
-            return;
-          }
           activateCollect();
           prefetchAllVideos();
         }, 300);
@@ -1481,23 +1558,23 @@
       }
       if (changes.skipChinesePages) {
         settings.skipChinesePages = changes.skipChinesePages.newValue !== false;
+        chinesePageSkip = settings.skipChinesePages && pageIsChinese();
         if (settings.enabled) {
-          if (settings.skipChinesePages && pageIsChinese()) {
-            suspendCollect();
-          } else {
-            activateCollect();
-            prefetchAllVideos();
-          }
+          activateCollect();
+          prefetchAllVideos();
         }
+      }
+      if (changes.hoverReveal) {
+        settings.hoverReveal = changes.hoverReveal.newValue === true;
+        applyHoverMode();
       }
       if (!changes.enabled) return;
       settings.enabled = changes.enabled.newValue !== false;
       setAllVisible(settings.enabled);
       if (!settings.enabled) {
         clearPending();
-      } else if (settings.skipChinesePages && pageIsChinese()) {
-        suspendCollect();
       } else {
+        chinesePageSkip = settings.skipChinesePages && pageIsChinese();
         activateCollect();
         prefetchAllVideos();
       }
