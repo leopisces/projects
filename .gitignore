@@ -1,0 +1,8 @@
+# Agent working state
+.omo/
+
+# Build artifacts & private keys
+inline-web-translator/dist/
+
+# Local config with secrets
+inline-web-translator/config.json

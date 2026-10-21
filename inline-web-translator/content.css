@@ -1,0 +1,34 @@
+ppp-sent {
+  display: inline;
+}
+
+ppp-trans {
+  display: inline-block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 3px;
+  padding: 0;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.82em;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-align: left;
+  text-decoration: none;
+  text-indent: 0;
+  white-space: normal;
+  word-break: break-word;
+  vertical-align: top;
+  opacity: 0.72;
+}
+
+ppp-trans:empty {
+  display: none;
+}
+
+ppp-trans.ppp-hidden {
+  display: none !important;
+}
