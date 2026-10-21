@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Inline Web Translator",
-  "version": "1.10.2",
+  "version": "1.11.0",
   "description": "自动识别网页中的外语句子，逐句翻译为中文并显示在每句原文下方，适合学习与查阅资料。",
   "permissions": ["storage", "declarativeNetRequest"],
   "host_permissions": [
@@ -26,6 +26,13 @@
       "css": ["content.css"],
       "run_at": "document_idle",
       "all_frames": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["bridge.js"],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "world": "MAIN"
     }
   ],
   "action": {

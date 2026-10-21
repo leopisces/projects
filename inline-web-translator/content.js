@@ -49,6 +49,10 @@
   ].join(',');
   const SUBTITLE_WEAK = '[class*="subtitle" i],[class*="subtitles" i],[class*="caption" i]';
   const EXCLUDE_UI_SELECTOR = '.vjs-control-bar,.vjs-control-text,.vjs-time-control,.vjs-big-play-button,.vjs-poster,.vjs-loading-spinner,.vjs-error-display,.vjs-modal-dialog,.vjs-menu,.plyr__controls,.jw-controlbar,.ytp-chrome-bottom';
+  const PREFETCH_MIN_INTERVAL_MS = 1500;
+  const PREFETCH_MAX_TEXTS = 120;
+  const PREFETCH_AHEAD_GOOGLE = 60;
+  const PREFETCH_AHEAD_DEEPSEEK = 30;
 
   const settings = { enabled: true, provider: 'google', blockGoogleWidget: true, skipChinesePages: true, fileConfig: null };
   const TARGET_LANG = 'zh-CN';
@@ -77,8 +81,9 @@
     return Math.min(30000, RETRY_BASE_MS * Math.pow(2, attempt));
   }
 
-  function requestGap() {
-    return settings.provider === 'deepseek' ? 150 : MIN_GAP_MS;
+  function requestGap(priority) {
+    if (settings.provider === 'deepseek') return priority ? 80 : 150;
+    return priority ? 200 : MIN_GAP_MS;
   }
 
   function batchConfig() {
@@ -136,7 +141,7 @@
   function fetchChunk(chunk, attempt, item) {
     return serial(function () {
       const now = Date.now();
-      const wait = Math.max(0, lastRequestAt + requestGap() - now, cooldownUntil - now);
+      const wait = Math.max(0, lastRequestAt + requestGap(item && item.priority) - now, cooldownUntil - now);
       return sleep(wait).then(function () {
         if (isStaleItem(item)) {
           const stale = new Error('stale');
@@ -212,7 +217,7 @@
   function deepseekRequest(lines, attempt, item) {
     return serial(function () {
       const now = Date.now();
-      const wait = Math.max(0, lastRequestAt + requestGap() - now, cooldownUntil - now);
+      const wait = Math.max(0, lastRequestAt + requestGap(item && item.priority) - now, cooldownUntil - now);
       return sleep(wait).then(function () {
         if (isStaleItem(item)) {
           const stale = new Error('stale');
@@ -428,7 +433,7 @@
     if (memo.has(key)) return Promise.resolve(memo.get(key));
     if (inflight.has(key)) return inflight.get(key);
     const p = new Promise(function (resolve, reject) {
-      const item = { text: text, key: key, resolve: resolve, reject: reject, el: (opts && opts.el) || null };
+      const item = { text: text, key: key, resolve: resolve, reject: reject, el: (opts && opts.el) || null, priority: fast };
       if (fast) {
         if (item.el && !item.el.isConnected) {
           resolve('');
@@ -476,6 +481,150 @@
     const total = text.replace(/\s+/g, '').length;
     if (total === 0) return false;
     return letters.length / total > 0.4;
+  }
+
+  function extractSentences(text) {
+    const out = [];
+    SENT_RE.lastIndex = 0;
+    let m;
+    while ((m = SENT_RE.exec(text))) {
+      const s = m[0].replace(/\s+/g, ' ').trim();
+      if (s.length >= MIN_SENT_LEN && needsTranslation(s)) out.push(s);
+    }
+    return out;
+  }
+
+  function findVideo(block) {
+    let cur = block;
+    for (let i = 0; i < 12 && cur && cur.nodeType === 1; i++) {
+      if (cur.tagName === 'VIDEO') return cur;
+      if (cur.querySelector) {
+        const video = cur.querySelector('video');
+        if (video) return video;
+      }
+      cur = cur.parentElement;
+    }
+    return null;
+  }
+
+  function initCueBridge() {
+    if (initCueBridge.done) return;
+    initCueBridge.done = true;
+    window.addEventListener('message', function (event) {
+      if (event.source !== window) return;
+      const data = event.data;
+      if (!data || data.__ppp !== 'cues' || !data.id) return;
+      const video = document.querySelector('video[data-ppp-cue-id="' + data.id + '"]');
+      if (!video) return;
+      if (Array.isArray(data.cues)) video.__pppBridgeCues = data.cues;
+      prefetchVideoCues(video, true);
+    });
+  }
+
+  function requestBridgeCues(video) {
+    if (!video || !video.getAttribute) return;
+    const nowMs = Date.now();
+    if (video.__pppBridgeAt && nowMs - video.__pppBridgeAt < 3000) return;
+    video.__pppBridgeAt = nowMs;
+    let id = video.getAttribute('data-ppp-cue-id');
+    if (!id) {
+      id = 'ppp' + Math.random().toString(36).slice(2) + nowMs.toString(36);
+      video.setAttribute('data-ppp-cue-id', id);
+    }
+    try {
+      window.postMessage({ __ppp: 'request-cues', id: id }, '*');
+    } catch (e) { /* 忽略 */ }
+  }
+
+  function plainCueText(raw) {
+    let text = String(raw || '').replace(/<[^>]*>/g, ' ');
+    try {
+      const ta = document.createElement('textarea');
+      ta.innerHTML = text;
+      text = ta.value;
+    } catch (e) { /* 忽略 */ }
+    return text;
+  }
+
+  function prefetchVideoCues(video, force) {
+    if (!video) return;
+    if (!video.__pppPrefetchBound) {
+      video.__pppPrefetchBound = true;
+      try {
+        video.addEventListener('timeupdate', function () { prefetchVideoCues(video); });
+        video.addEventListener('loadedmetadata', function () { prefetchVideoCues(video); });
+      } catch (e) { /* 忽略 */ }
+    }
+    initCueBridge();
+    const nowMs = Date.now();
+    if (!force && video.__pppPrefetchAt && nowMs - video.__pppPrefetchAt < PREFETCH_MIN_INTERVAL_MS) return;
+    video.__pppPrefetchAt = nowMs;
+    const now = Number(video.currentTime) || 0;
+    const ahead = now + (settings.provider === 'deepseek' ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE);
+    let budget = PREFETCH_MAX_TEXTS;
+
+    function handleCue(start, end, raw) {
+      if (budget <= 0) return;
+      if (!isFinite(start) || !isFinite(end)) return;
+      if (end < now - 2) return;
+      if (start < now + 1) return;
+      if (start > ahead) return;
+      const texts = extractSentences(plainCueText(raw));
+      for (let k = 0; k < texts.length && budget > 0; k++) {
+        const key = settings.provider + '|' + texts[k];
+        if (memo.has(key) || inflight.has(key)) continue;
+        translateText(texts[k]);
+        budget--;
+      }
+    }
+
+    let found = false;
+    const bridgeCues = video.__pppBridgeCues;
+    if (bridgeCues && bridgeCues.length) {
+      found = true;
+      requestBridgeCues(video);
+      for (let i = 0; i < bridgeCues.length && budget > 0; i++) {
+        const cue = bridgeCues[i];
+        if (!cue) continue;
+        handleCue(Number(cue.s), Number(cue.e), cue.t);
+      }
+    }
+    if (!found) {
+      const tracks = video.textTracks;
+      if (tracks) {
+        for (let t = 0; t < tracks.length && budget > 0; t++) {
+          const track = tracks[t];
+          if (!track || track.mode !== 'showing' || !track.cues) continue;
+          found = true;
+          for (let i = 0; i < track.cues.length && budget > 0; i++) {
+            const cue = track.cues[i];
+            if (!cue) continue;
+            handleCue(Number(cue.startTime), Number(cue.endTime), cue.text);
+          }
+        }
+      }
+    }
+    if (!found) {
+      const els = video.querySelectorAll ? video.querySelectorAll('track') : [];
+      for (let i = 0; i < els.length && budget > 0; i++) {
+        const track = els[i].track;
+        if (!track || !track.cues) continue;
+        found = true;
+        for (let k = 0; k < track.cues.length && budget > 0; k++) {
+          const cue = track.cues[k];
+          if (!cue) continue;
+          handleCue(Number(cue.startTime), Number(cue.endTime), cue.text);
+        }
+      }
+    }
+    if (!found) requestBridgeCues(video);
+  }
+
+  function prefetchAllVideos() {
+    try {
+      const videos = document.querySelectorAll('video');
+      for (let i = 0; i < videos.length; i++) prefetchVideoCues(videos[i]);
+    } catch (e) { /* 忽略 */ }
   }
 
   function findBlockAncestor(el) {
@@ -534,6 +683,11 @@
       sentences.push({ start: m.index, end: m.index + raw.length, text: text });
     }
     if (!sentences.length) return;
+
+    if (fast) {
+      const video = findVideo(block);
+      if (video) prefetchVideoCues(video);
+    }
 
     const spansPerSentence = sentences.map(function () { return []; });
 
@@ -808,6 +962,7 @@
             return;
           }
           activateCollect();
+          prefetchAllVideos();
         }, 300);
       });
     });
@@ -832,8 +987,12 @@
       if (changes.skipChinesePages) {
         settings.skipChinesePages = changes.skipChinesePages.newValue !== false;
         if (settings.enabled) {
-          if (settings.skipChinesePages && pageIsChinese()) suspendCollect();
-          else activateCollect();
+          if (settings.skipChinesePages && pageIsChinese()) {
+            suspendCollect();
+          } else {
+            activateCollect();
+            prefetchAllVideos();
+          }
         }
       }
       if (!changes.enabled) return;
@@ -845,6 +1004,7 @@
         suspendCollect();
       } else {
         activateCollect();
+        prefetchAllVideos();
       }
     });
   }
