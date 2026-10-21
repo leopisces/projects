@@ -9,8 +9,8 @@
 - 自动跳过中文内容与代码/脚本，不会把已中文的页面再翻一遍
 - 同句去重缓存，只翻译进入可视区域的段落，滚动时逐步加载
 - **攒批请求**：多句合并成一次接口调用（最多 8 句 / 1200 字符），凑满或等待 600ms 即发送，返回后按句拆回
-- **视频字幕实时翻译**：自动识别 YouTube / Bilibili / Video.js 等播放器的 DOM 字幕，字幕一出现立即单独翻译并显示在当前字幕下方，不攒批、不走视口排队，延迟约 40ms
-- **字幕预翻译**：播放时读取播放器字幕轨（`video.textTracks`），提前 30–60 秒把即将出现的字幕批量翻译并缓存，字幕出现时直接命中缓存，基本无需等待
+- **视频字幕实时翻译**：自动识别 YouTube / Bilibili / Video.js / Brightcove 等播放器的 DOM 字幕，按整条 cue 翻译（上下文更完整），只使用当前正在显示的字幕轨，译文写入播放器内的独立悬浮层，播放器重写字幕也不会闪断
+- **字幕预翻译**：播放时读取播放器字幕轨（`video.textTracks`），提前约 25–40 秒把即将出现的字幕批量翻译并缓存，字幕出现时直接命中缓存，基本无需等待
 - 请求串行限速（间隔 500ms），遇到 429/503 自动指数退避重试（2.5s 起，最多 4 次）
 - 译文写入本地缓存（localStorage），刷新或再次访问同一页面不重复请求
 - 动态加载内容（无限滚动、SPA 切换）自动跟进翻译
@@ -87,7 +87,9 @@ DeepSeek 的 API Key 不从弹窗输入，而是读取扩展目录下的 `config
 - 原文按句子切分并包裹为自定义标签 `<ppp-sent>`，译文写入紧邻的 `<ppp-trans>`（`inline-block` 占满整行，自动换行到句子下方）
 - `MutationObserver` + 300ms 防抖处理动态新增内容
 - 通过常见播放器字幕选择器与「类名含 subtitle/caption 且祖先含 `<video>`」的通用规则识别字幕块；字幕块跳过 `IntersectionObserver` 与攒批，`MutationObserver` 对字幕变更只用 40ms 防抖并立即单条请求，占位译文已被播放器移除时不再发送请求
-- 字幕快速请求享有更短限速间隔（Google 200ms / DeepSeek 80ms）；同时从 `video.textTracks` 预取当前时间之后 60 秒（DeepSeek 30 秒）的字幕 cue，走普通攒批队列提前翻译并写入缓存，cue 出现时直接命中缓存；视频使用 video.js 时由 MAIN world 桥接脚本通过 `videojs.getPlayer()` 读取字幕轨
+- 字幕快速请求享有更短限速间隔（Google 200ms / DeepSeek 80ms）；字幕按整条 cue 作为一个翻译单位；预取默认 12 条（DeepSeek）/ 8 条（Google）一批，走独立的预取队列并优先于页面正文，提前翻译并写入缓存，cue 出现时直接命中缓存；视频使用 video.js / Brightcove 时由 MAIN world 桥接脚本通过 `videojs.getPlayer()` / `bc.getPlayer()` 读取字幕轨，只取 `kind=subtitles/captions` 且 `mode=showing` 的轨道，忽略元数据与隐藏轨
+- 字幕译文写入播放器容器内的独立悬浮层（不修改播放器字幕节点），播放器持续重写字幕时也不会闪断；暂停时保持显示，cue 消失后自动隐藏；DeepSeek 未命中的单条字幕使用流式返回，边生成边显示
+- 控制台会输出字幕命中率统计（`字幕统计 <引擎>|b<批大小>|a<前瞻秒数> ...`），可用 `localStorage.pppSubBatch` / `localStorage.pppSubAhead` 调整后对比
 - 页面级语言检测：`<html lang>` 以 `zh` 开头，或正文采样中汉字占字母总数 30% 以上，则判定为中文页面并整页跳过
 - `early.js` 在 `document_start` 注入：给 `html` 打上 `translate="no"` / `notranslate`，清除 `googtrans` Cookie，并持续移除 Google 翻译控件与横幅
 - 后台 Service Worker 通过 `declarativeNetRequest` 动态规则拦截 `translate_a/element.js` 与 `translate-pa.googleapis.com`
@@ -104,5 +106,5 @@ DeepSeek 的 API Key 不从弹窗输入，而是读取扩展目录下的 `config
 - 涉及敏感信息的页面（网银、内部系统等）建议关闭翻译开关
 - 仅支持以 DOM 元素渲染的字幕（YouTube、Bilibili、Video.js 等）；浏览器原生 `<video><track>` 字幕渲染在浏览器内部，扩展无法读取和翻译
 - 播放器控制栏与控件（video.js / Plyr / JW Player / YouTube 控件等）不翻译，避免替换播放器内部缓存的文本节点导致时间显示重复或告警
-- 字幕预翻译依赖播放器暴露字幕轨：标准 `video.textTracks`，或页面中的 video.js 播放器（通过 MAIN world 桥接读取）；YouTube 内部字幕、图片字幕或自定义渲染无法预取；DeepSeek 预翻译会增加 token 消耗
+- 字幕预翻译依赖播放器暴露字幕轨：标准 `video.textTracks`，或页面中的 video.js / Brightcove 播放器（通过 MAIN world 桥接读取 `videojs.getPlayer()` / `bc.getPlayer()`）；YouTube 内部字幕、图片字幕或自定义渲染无法预取；DeepSeek 预翻译会增加 token 消耗
 - 首次安装后，已打开的页面需刷新一次才生效

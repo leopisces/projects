@@ -30,7 +30,7 @@
   const CACHE_KEY = 'ppp-trans-cache-v2';
   const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
   const DEEPSEEK_MODEL = 'deepseek-flash';
-  const DEEPSEEK_PROMPT = 'You are a translation engine. Translate every line of the user message into Simplified Chinese. Preserve the exact number of lines and their order. Output only the translated lines, one per line, without numbering, explanations, or markdown.';
+  const DEEPSEEK_PROMPT = 'You are a subtitle translation engine. Translate every line of the user message into Simplified Chinese. Preserve the exact number of lines and their order. Output only the translated lines, one per line, without numbering, explanations, or markdown. Do not answer questions, continue the text, or add any content that is not present in the source.';
   const SENT_RE = /[^.!?。！？]+[.!?。！？]+["'”’)\]]*\s*|[^.!?。！？]+$/g;
   const SUB_DEBOUNCE_MS = 40;
   const SUBTITLE_STRONG = [
@@ -51,8 +51,8 @@
   const EXCLUDE_UI_SELECTOR = '.vjs-control-bar,.vjs-control-text,.vjs-time-control,.vjs-big-play-button,.vjs-poster,.vjs-loading-spinner,.vjs-error-display,.vjs-modal-dialog,.vjs-menu,.plyr__controls,.jw-controlbar,.ytp-chrome-bottom';
   const PREFETCH_MIN_INTERVAL_MS = 1500;
   const PREFETCH_MAX_TEXTS = 120;
-  const PREFETCH_AHEAD_GOOGLE = 60;
-  const PREFETCH_AHEAD_DEEPSEEK = 30;
+  const PREFETCH_AHEAD_GOOGLE = 40;
+  const PREFETCH_AHEAD_DEEPSEEK = 25;
 
   const settings = { enabled: true, provider: 'google', blockGoogleWidget: true, skipChinesePages: true, fileConfig: null };
   const TARGET_LANG = 'zh-CN';
@@ -62,19 +62,69 @@
   let warnedNoKey = false;
   let lastRequestAt = 0;
   let cooldownUntil = 0;
-  let serialChain = Promise.resolve();
+  let fastTotal = 0;
+  let netSeq = 0;
+  let lastFastLogText = '';
+  let lastPairLog = '';
+
+  function logFast(kind, text) {
+    if (text === lastFastLogText) return;
+    lastFastLogText = text;
+    console.info('[Inline Web Translator] 字幕' + kind + ' @' + Math.round(performance.now()) + 'ms', String(text).slice(0, 160));
+  }
+
+  function logPair(src, dst) {
+    const key = src + '=>' + dst;
+    if (key === lastPairLog) return;
+    lastPairLog = key;
+    console.info('[Inline Web Translator] 字幕配对 @' + Math.round(performance.now()) + 'ms', String(src).slice(0, 140), '=>', String(dst).slice(0, 140));
+  }
 
   const batchQueue = [];
   let batchTimer = null;
+  const prefetchQueue = [];
+  let prefetchTimer = null;
+  let prefetchBatchSize = 0;
+  let prefetchAheadSec = 0;
+  const STATS_KEY = 'ppp-sub-stats-v1';
+  let stats = null;
+  let statsStore = {};
+  let statsKey = '';
+  let statsSaveTimer = null;
+  let lastStatText = '';
 
   function sleep(ms) {
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
-  function serial(task) {
-    const p = serialChain.then(task);
-    serialChain = p.catch(function () {});
-    return p;
+  const serialQueue = [];
+  let serialBusy = false;
+
+  function drainSerial() {
+    if (serialBusy) return;
+    const entry = serialQueue.shift();
+    if (!entry) return;
+    serialBusy = true;
+    let p;
+    try { p = entry.task(); } catch (e) { p = Promise.reject(e); }
+    Promise.resolve(p).then(function (v) {
+      serialBusy = false;
+      entry.resolve(v);
+      drainSerial();
+    }, function (e) {
+      serialBusy = false;
+      entry.reject(e);
+      drainSerial();
+    });
+  }
+
+  function serial(task, priority) {
+    return new Promise(function (resolve, reject) {
+      const entry = { task: task, resolve: resolve, reject: reject };
+      if (priority) serialQueue.unshift(entry);
+      else serialQueue.push(entry);
+      drainSerial();
+    });
   }
 
   function backoff(attempt) {
@@ -86,11 +136,59 @@
     return priority ? 200 : MIN_GAP_MS;
   }
 
+  function looseKey(text) {
+    return settings.provider + '|~|' + String(text || '').toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
+  }
+
   function batchConfig() {
     if (settings.provider === 'deepseek') {
       return { items: 12, chars: 2400, wait: 800 };
     }
     return { items: BATCH_MAX_ITEMS, chars: BATCH_MAX_CHARS, wait: BATCH_WAIT_MS };
+  }
+
+  function prefetchConfig() {
+    const items = prefetchBatchSize || (settings.provider === 'deepseek' ? 12 : 8);
+    const chars = settings.provider === 'deepseek' ? 2400 : 1200;
+    return { items: items, chars: chars, wait: 250 };
+  }
+
+  function readIntOverride(name, def) {
+    try {
+      const v = parseInt(localStorage.getItem(name), 10);
+      return isFinite(v) && v > 0 ? v : def;
+    } catch (e) { return def; }
+  }
+
+  function initStats() {
+    statsKey = settings.provider + '|b' + prefetchBatchSize + '|a' + prefetchAheadSec;
+    try { statsStore = JSON.parse(localStorage.getItem(STATS_KEY) || '{}') || {}; } catch (e) { statsStore = {}; }
+    stats = statsStore[statsKey] || { total: 0, hit: 0, exact: 0, loose: 0, miss: 0, missMs: 0, net: 0, since: Date.now() };
+    statsStore[statsKey] = stats;
+    console.info('[Inline Web Translator] 字幕统计已启用: ' + statsKey);
+  }
+
+  function saveStats() {
+    if (!stats) return;
+    statsStore[statsKey] = stats;
+    if (statsSaveTimer) return;
+    statsSaveTimer = setTimeout(function () {
+      statsSaveTimer = null;
+      try { localStorage.setItem(STATS_KEY, JSON.stringify(statsStore)); } catch (e) { /* 忽略 */ }
+    }, 1000);
+  }
+
+  function flushStats() {
+    if (!stats) return;
+    statsStore[statsKey] = stats;
+    try { localStorage.setItem(STATS_KEY, JSON.stringify(statsStore)); } catch (e) { /* 忽略 */ }
+  }
+
+  function logStats() {
+    if (!stats) return;
+    const rate = stats.total ? (stats.hit / stats.total * 100).toFixed(1) : '0.0';
+    const avg = stats.miss ? Math.round(stats.missMs / stats.miss) : 0;
+    console.info('[Inline Web Translator] 字幕统计 ' + statsKey + ' 命中 ' + stats.hit + '/' + stats.total + ' (' + rate + '%) 精确=' + stats.exact + ' 宽松=' + stats.loose + ' 未命中=' + stats.miss + ' 平均未命中延迟=' + avg + 'ms 网络请求=' + stats.net);
   }
 
   function loadMemo() {
@@ -141,7 +239,7 @@
   function fetchChunk(chunk, attempt, item) {
     return serial(function () {
       const now = Date.now();
-      const wait = Math.max(0, lastRequestAt + requestGap(item && item.priority) - now, cooldownUntil - now);
+      const wait = Math.max(0, lastRequestAt + requestGap(item && item.fast) - now, cooldownUntil - now);
       return sleep(wait).then(function () {
         if (isStaleItem(item)) {
           const stale = new Error('stale');
@@ -151,6 +249,12 @@
         lastRequestAt = Date.now();
         const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' +
           encodeURIComponent(TARGET_LANG) + '&dt=t&q=' + encodeURIComponent(chunk);
+        netSeq++;
+        if (stats) { stats.net++; saveStats(); }
+        const gparts = chunk.split('\n').map(function (s) {
+          return s.replace(/\s+/g, ' ').slice(0, 120);
+        });
+        console.info('[Inline Web Translator] 网络请求 #' + netSeq + ' @' + Math.round(performance.now()) + 'ms', gparts);
         return fetch(url);
       }).then(function (res) {
         if (res.status === 429 || res.status === 503) {
@@ -162,7 +266,7 @@
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
       }).then(parseResponse);
-    });
+    }, item && item.priority);
   }
 
   function splitIntoChunks(text, max) {
@@ -214,10 +318,57 @@
     }).filter(Boolean);
   }
 
+  function readDeepSeekStream(res, item) {
+    return new Promise(function (resolve, reject) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let content = '';
+      let lastPush = 0;
+
+      function push(force) {
+        if (!content) return;
+        const now = Date.now();
+        if (!force && now - lastPush < 80) return;
+        lastPush = now;
+        try { item.onPartial(content); } catch (e) { /* 忽略 */ }
+      }
+
+      function pump() {
+        reader.read().then(function (r) {
+          if (r.done) {
+            push(true);
+            resolve(content);
+            return;
+          }
+          buffer += decoder.decode(r.value, { stream: true });
+          let idx;
+          while ((idx = buffer.indexOf('\n')) !== -1) {
+            const line = buffer.slice(0, idx).trim();
+            buffer = buffer.slice(idx + 1);
+            if (!line || line.indexOf('data:') !== 0) continue;
+            const payload = line.slice(5).trim();
+            if (!payload || payload === '[DONE]') continue;
+            try {
+              const obj = JSON.parse(payload);
+              const delta = obj.choices && obj.choices[0] && obj.choices[0].delta;
+              if (delta && delta.content) content += delta.content;
+            } catch (e) { /* 忽略非 JSON 行 */ }
+          }
+          push(false);
+          pump();
+        }, function (err) { reject(err); });
+      }
+
+      pump();
+    });
+  }
+
   function deepseekRequest(lines, attempt, item) {
+    const streaming = !!(item && item.el && item.onPartial);
     return serial(function () {
       const now = Date.now();
-      const wait = Math.max(0, lastRequestAt + requestGap(item && item.priority) - now, cooldownUntil - now);
+      const wait = Math.max(0, lastRequestAt + requestGap(item && item.fast) - now, cooldownUntil - now);
       return sleep(wait).then(function () {
         if (isStaleItem(item)) {
           const stale = new Error('stale');
@@ -225,6 +376,12 @@
           throw stale;
         }
         lastRequestAt = Date.now();
+        netSeq++;
+        if (stats) { stats.net++; saveStats(); }
+        const dparts = lines.map(function (s) {
+          return String(s).replace(/\s+/g, ' ').slice(0, 120);
+        });
+        console.info('[Inline Web Translator] 网络请求 #' + netSeq + ' DeepSeek @' + Math.round(performance.now()) + 'ms', dparts);
         return fetch(DEEPSEEK_URL, {
           method: 'POST',
           headers: {
@@ -235,7 +392,7 @@
             model: deepseekModel(),
             temperature: 0,
             max_tokens: 8192,
-            stream: false,
+            stream: streaming,
             thinking: { type: 'disabled' },
             messages: [
               { role: 'system', content: DEEPSEEK_PROMPT },
@@ -244,7 +401,13 @@
           })
         });
       }).then(function (res) {
-        if (res.ok) return res.json();
+        if (res.ok) {
+          const ctype = res.headers && res.headers.get ? String(res.headers.get('content-type') || '') : '';
+          if (streaming && ctype.indexOf('text/event-stream') !== -1 && res.body && res.body.getReader) {
+            return readDeepSeekStream(res, item);
+          }
+          return res.json();
+        }
         return res.text().then(function (body) {
           const detail = (body || '').slice(0, 300);
           const err = new Error('DeepSeek HTTP ' + res.status + (detail ? ' | ' + detail : ''));
@@ -258,10 +421,11 @@
           throw err;
         });
       }).then(function (data) {
+        if (typeof data === 'string') return data;
         const msg = data && data.choices && data.choices[0] && data.choices[0].message;
         return (msg && msg.content) || '';
       });
-    });
+    }, item && item.priority);
   }
 
   function googleFallback(item) {
@@ -316,13 +480,8 @@
         items.forEach(function (it, i) { it.resolve(parts[i]); });
         return;
       }
-      if (items.length > 2) {
-        const mid = Math.ceil(items.length / 2);
-        runDeepSeekBatch(items.slice(0, mid), 0);
-        runDeepSeekBatch(items.slice(mid), 0);
-        return;
-      }
-      items.forEach(function (it) { runDeepSeekSingle(it, 0); });
+      warnDeepSeekFailure(new Error('DeepSeek 行数不匹配，回退 Google 翻译本批'));
+      runGoogleBatch(items, 0);
     }).catch(function (e) {
       if (e && e.retryable && attempt < MAX_RETRIES) {
         setTimeout(function () { runDeepSeekBatch(items, attempt + 1); }, backoff(attempt));
@@ -427,19 +586,83 @@
     runBatch(items, 0);
   }
 
+  function flushPrefetch() {
+    if (prefetchTimer) {
+      clearTimeout(prefetchTimer);
+      prefetchTimer = null;
+    }
+    if (!prefetchQueue.length) return;
+    const cfg = prefetchConfig();
+    const items = [];
+    let chars = 0;
+    while (prefetchQueue.length && items.length < cfg.items) {
+      const next = prefetchQueue[0];
+      if (items.length > 0 && chars + next.text.length > cfg.chars) break;
+      prefetchQueue.shift();
+      items.push(next);
+      chars += next.text.length;
+    }
+    runBatch(items, 0);
+  }
+
   function translateText(text, opts) {
     const fast = !!(opts && opts.fast);
+    const prefetch = !!(opts && opts.prefetch);
     const key = settings.provider + '|' + text;
-    if (memo.has(key)) return Promise.resolve(memo.get(key));
-    if (inflight.has(key)) return inflight.get(key);
+    const lkey = looseKey(text);
+    let wasMiss = false;
+    const missAt = fast ? performance.now() : 0;
+    if (fast) {
+      fastTotal++;
+      if (text !== lastStatText) {
+        lastStatText = text;
+        if (stats) {
+          stats.total++;
+          if (memo.has(key)) {
+            stats.hit++;
+            stats.exact++;
+          } else if (memo.has(lkey)) {
+            stats.hit++;
+            stats.loose++;
+          } else {
+            stats.miss++;
+            wasMiss = true;
+          }
+          saveStats();
+        }
+      }
+      if (fastTotal % 10 === 0) logStats();
+    }
+    if (memo.has(key) || memo.has(lkey)) {
+      if (fast) logFast('命中', text);
+      return Promise.resolve(memo.has(key) ? memo.get(key) : memo.get(lkey));
+    }
+    if (fast) logFast('未命中', text);
+    if (inflight.has(key)) {
+      const existing = inflight.get(key);
+      if (wasMiss && stats) {
+        existing.then(function () {
+          stats.missMs += Math.round(performance.now() - missAt);
+          saveStats();
+        }).catch(function () { /* 忽略 */ });
+      }
+      return existing;
+    }
     const p = new Promise(function (resolve, reject) {
-      const item = { text: text, key: key, resolve: resolve, reject: reject, el: (opts && opts.el) || null, priority: fast };
+      const item = { text: text, key: key, resolve: resolve, reject: reject, el: (opts && opts.el) || null, priority: fast || prefetch, fast: fast, onPartial: (opts && opts.onPartial) || null };
       if (fast) {
         if (item.el && !item.el.isConnected) {
           resolve('');
           return;
         }
         runBatch([item], 0);
+        return;
+      }
+      if (prefetch) {
+        const pcfg = prefetchConfig();
+        prefetchQueue.push(item);
+        if (prefetchQueue.length >= pcfg.items) flushPrefetch();
+        else if (!prefetchTimer) prefetchTimer = setTimeout(flushPrefetch, pcfg.wait);
         return;
       }
       const cfg = batchConfig();
@@ -450,7 +673,14 @@
     inflight.set(key, p);
     p.then(function (t) {
       inflight.delete(key);
-      if (t && t.trim()) memo.set(key, t);
+      if (wasMiss && stats) {
+        stats.missMs += Math.round(performance.now() - missAt);
+        saveStats();
+      }
+      if (t && t.trim()) {
+        memo.set(key, t);
+        memo.set(lkey, t);
+      }
       persistMemo();
     }).catch(function (e) {
       inflight.delete(key);
@@ -481,6 +711,10 @@
     const total = text.replace(/\s+/g, '').length;
     if (total === 0) return false;
     return letters.length / total > 0.4;
+  }
+
+  function isNoiseText(text) {
+    return /(byteLength|fastly_token|"uri"\s*:|https?:\/\/)/i.test(String(text || ''));
   }
 
   function extractSentences(text) {
@@ -517,6 +751,13 @@
       const video = document.querySelector('video[data-ppp-cue-id="' + data.id + '"]');
       if (!video) return;
       if (Array.isArray(data.cues)) video.__pppBridgeCues = data.cues;
+      const count = Array.isArray(data.cues) ? data.cues.length : 0;
+      if (!video.__pppCueLogged || video.__pppCueCount !== count) {
+        video.__pppCueLogged = true;
+        video.__pppCueCount = count;
+        const dbg = data.debug || {};
+        console.info('[Inline Web Translator] 字幕桥接结果: ' + count + ' 条 picked=' + (dbg.picked || 'none') + ' tracks=' + ((dbg.tracks || []).join(' | ')));
+      }
       prefetchVideoCues(video, true);
     });
   }
@@ -534,16 +775,171 @@
     try {
       window.postMessage({ __ppp: 'request-cues', id: id }, '*');
     } catch (e) { /* 忽略 */ }
+    if (!video.__pppBridgeReqLogged) {
+      video.__pppBridgeReqLogged = true;
+      console.info('[Inline Web Translator] 已请求播放器字幕轨，等待桥接返回');
+    }
   }
 
   function plainCueText(raw) {
-    let text = String(raw || '').replace(/<[^>]*>/g, ' ');
+    let text = String(raw || '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<v(?:\.[^ >]+)?\s+([^>]+)>/gi, '$1 ')
+      .replace(/<[^>]*>/g, ' ');
     try {
       const ta = document.createElement('textarea');
       ta.innerHTML = text;
       text = ta.value;
     } catch (e) { /* 忽略 */ }
     return text;
+  }
+
+  function cueKey(start, end) {
+    return Math.round(Number(start) * 10) + '|' + Math.round(Number(end) * 10);
+  }
+
+  function lookupCueTranslation(video, cueText) {
+    if (!video) return '';
+    const map = video.__pppCueTrans;
+    const cues = video.__pppBridgeCues;
+    if (!map || !map.size || !cues || !cues.length) return '';
+    const now = Number(video.currentTime) || 0;
+    const dom = String(cueText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    let best = '';
+    let bestScore = 0;
+    for (let i = 0; i < cues.length; i++) {
+      const cue = cues[i];
+      if (!cue) continue;
+      const start = Number(cue.s);
+      const end = Number(cue.e);
+      if (!isFinite(start) || !isFinite(end)) continue;
+      if (start > now + 1.5 || end < now - 1.5) continue;
+      const rec = map.get(cueKey(start, end));
+      if (!rec) continue;
+      const translation = typeof rec === 'string' ? rec : rec.t;
+      if (!translation) continue;
+      const src = rec && rec.src ? rec.src : plainCueText(cue.t).replace(/\s+/g, ' ').trim().toLowerCase();
+      let score = 0;
+      if (src && dom) {
+        if (src === dom) score = 4;
+        else if (src.indexOf(dom) !== -1 || dom.indexOf(src) !== -1) score = 3;
+        else score = 1;
+      } else {
+        score = 1;
+      }
+      if (start <= now + 0.5 && end >= now - 0.5) score += 2;
+      if (score >= 3 && score > bestScore) {
+        bestScore = score;
+        best = translation;
+      }
+    }
+    return best;
+  }
+
+  const prefetchRecent = new Map();
+  const subOverlays = new Map();
+
+  function findOverlayContainer(video, block) {
+    let cur = video || block;
+    let fallback = null;
+    for (let i = 0; cur && cur.nodeType === 1 && i < 12; i++) {
+      if (cur.querySelector && cur.querySelector('video')) fallback = cur;
+      try {
+        if (fallback && getComputedStyle(cur).position !== 'static') return cur;
+      } catch (e) { /* 忽略 */ }
+      cur = cur.parentElement;
+    }
+    const container = fallback || (video && video.parentElement) || document.body;
+    try {
+      if (container && getComputedStyle(container).position === 'static') container.style.position = 'relative';
+    } catch (e) { /* 忽略 */ }
+    return container;
+  }
+
+  function getSubOverlay(container) {
+    let entry = subOverlays.get(container);
+    if (entry && entry.el && entry.el.isConnected) return entry;
+    const el = document.createElement(TRANS_TAG);
+    el.setAttribute('translate', 'no');
+    el.classList.add('notranslate', 'ppp-sub-overlay');
+    if (!settings.enabled) el.classList.add('ppp-hidden');
+    container.appendChild(el);
+    entry = { el: el, block: null, cueText: '', timer: null };
+    subOverlays.set(container, entry);
+    return entry;
+  }
+
+  function positionSubOverlay(entry) {
+    const block = entry.block;
+    const el = entry.el;
+    if (!block || !block.isConnected || !el || !el.isConnected) return;
+    const op = el.offsetParent || el.parentElement;
+    if (!op) return;
+    const rect = block.getBoundingClientRect();
+    const crect = op.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    let cs = null;
+    try { cs = getComputedStyle(block); } catch (e) { /* 忽略 */ }
+    if (cs) {
+      el.style.fontSize = cs.fontSize;
+      el.style.fontFamily = cs.fontFamily;
+      el.style.fontWeight = cs.fontWeight;
+    }
+    el.style.left = (rect.left - crect.left + rect.width / 2) + 'px';
+    el.style.maxWidth = Math.max(120, Math.round(rect.width)) + 'px';
+    const h = el.offsetHeight || 0;
+    let top = rect.bottom - crect.top + 4;
+    if (top + h > crect.height - 4) top = rect.top - crect.top - h - 4;
+    if (top < 4) top = 4;
+    el.style.top = Math.round(top) + 'px';
+  }
+
+  function setSubOverlayText(entry, text) {
+    if (!entry || !entry.el || !entry.el.isConnected) return;
+    if (entry.el.textContent !== text) entry.el.textContent = text;
+    positionSubOverlay(entry);
+  }
+
+  function ensureSubOverlayWatcher(entry) {
+    if (!entry || entry.timer) return;
+    entry.timer = setInterval(function () {
+      if (!entry.el || !entry.el.isConnected || !entry.block || !entry.block.isConnected) {
+        if (entry.el) entry.el.textContent = '';
+        clearInterval(entry.timer);
+        entry.timer = null;
+        return;
+      }
+      const current = (entry.block.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!current) {
+        if (entry.el.textContent) entry.el.textContent = '';
+        clearInterval(entry.timer);
+        entry.timer = null;
+      }
+    }, 500);
+  }
+
+  function renderSubtitleOverlay(block, cueText) {
+    const video = findVideo(block);
+    const container = findOverlayContainer(video, block);
+    const entry = getSubOverlay(container);
+    entry.block = block;
+    entry.cueText = cueText;
+    const timed = video ? lookupCueTranslation(video, cueText) : '';
+    if (timed) memo.set(settings.provider + '|' + cueText, timed);
+    translateText(cueText, {
+      fast: true,
+      el: video || null,
+      onPartial: function (partial) {
+        if (partial && entry.cueText === cueText) setSubOverlayText(entry, partial);
+      }
+    }).then(function (t) {
+      if (t && t.trim() && entry.cueText === cueText) {
+        setSubOverlayText(entry, t);
+        logPair(cueText, t);
+      }
+    }).catch(function () { /* 忽略 */ });
+    ensureSubOverlayWatcher(entry);
+    if (video) prefetchVideoCues(video);
   }
 
   function prefetchVideoCues(video, force) {
@@ -560,22 +956,45 @@
     if (!force && video.__pppPrefetchAt && nowMs - video.__pppPrefetchAt < PREFETCH_MIN_INTERVAL_MS) return;
     video.__pppPrefetchAt = nowMs;
     const now = Number(video.currentTime) || 0;
-    const ahead = now + (settings.provider === 'deepseek' ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE);
+    const ahead = now + (prefetchAheadSec || (settings.provider === 'deepseek' ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE));
     let budget = PREFETCH_MAX_TEXTS;
 
     function handleCue(start, end, raw) {
       if (budget <= 0) return;
       if (!isFinite(start) || !isFinite(end)) return;
       if (end < now - 2) return;
-      if (start < now + 1) return;
+      if (start <= now + 0.25 && end > now) return;
       if (start > ahead) return;
-      const texts = extractSentences(plainCueText(raw));
-      for (let k = 0; k < texts.length && budget > 0; k++) {
-        const key = settings.provider + '|' + texts[k];
-        if (memo.has(key) || inflight.has(key)) continue;
-        translateText(texts[k]);
-        budget--;
+      const plain = plainCueText(raw).replace(/\s+/g, ' ').trim();
+      if (!plain || plain.length > 500 || !needsTranslation(plain) || isNoiseText(plain)) return;
+      if (!video.__pppCueTrans) video.__pppCueTrans = new Map();
+      const ck = cueKey(start, end);
+      const key = settings.provider + '|' + plain;
+      const nowMs = Date.now();
+      const lastAt = prefetchRecent.get(key);
+      if (lastAt && nowMs - lastAt < 120000) return;
+      prefetchRecent.set(key, nowMs);
+      if (prefetchRecent.size > 2000) {
+        prefetchRecent.forEach(function (v, k) {
+          if (nowMs - v > 180000) prefetchRecent.delete(k);
+        });
       }
+      const cached = memo.get(key) || memo.get(looseKey(plain));
+      const src = plain.toLowerCase();
+      if (cached) {
+        video.__pppCueTrans.set(ck, { t: cached, src: src });
+        return;
+      }
+      if (inflight.has(key)) {
+        inflight.get(key).then(function (t) {
+          if (t) video.__pppCueTrans.set(ck, { t: t, src: src });
+        }).catch(function () { /* 忽略 */ });
+        return;
+      }
+      translateText(plain, { prefetch: true }).then(function (t) {
+        if (t) video.__pppCueTrans.set(ck, { t: t, src: src });
+      }).catch(function () { /* 忽略 */ });
+      budget--;
     }
 
     let found = false;
@@ -595,26 +1014,44 @@
         for (let t = 0; t < tracks.length && budget > 0; t++) {
           const track = tracks[t];
           if (!track || track.mode !== 'showing' || !track.cues) continue;
+          if (track.kind && track.kind !== 'subtitles' && track.kind !== 'captions') continue;
           found = true;
           for (let i = 0; i < track.cues.length && budget > 0; i++) {
             const cue = track.cues[i];
             if (!cue) continue;
             handleCue(Number(cue.startTime), Number(cue.endTime), cue.text);
           }
+          break;
         }
       }
     }
     if (!found) {
-      const els = video.querySelectorAll ? video.querySelectorAll('track') : [];
+      const els = [];
+      try {
+        const root = video.closest ? video.closest('.video-js') : null;
+        if (root && root.querySelectorAll) {
+          const list = root.querySelectorAll('track');
+          for (let i = 0; i < list.length; i++) els.push(list[i]);
+        }
+      } catch (e) { /* 忽略 */ }
+      if (video.querySelectorAll) {
+        const list = video.querySelectorAll('track');
+        for (let i = 0; i < list.length; i++) {
+          if (els.indexOf(list[i]) === -1) els.push(list[i]);
+        }
+      }
       for (let i = 0; i < els.length && budget > 0; i++) {
         const track = els[i].track;
         if (!track || !track.cues) continue;
+        if (track.mode && track.mode !== 'showing') continue;
+        if (track.kind && track.kind !== 'subtitles' && track.kind !== 'captions') continue;
         found = true;
         for (let k = 0; k < track.cues.length && budget > 0; k++) {
           const cue = track.cues[k];
           if (!cue) continue;
           handleCue(Number(cue.startTime), Number(cue.endTime), cue.text);
         }
+        break;
       }
     }
     if (!found) requestBridgeCues(video);
@@ -685,8 +1122,9 @@
     if (!sentences.length) return;
 
     if (fast) {
-      const video = findVideo(block);
-      if (video) prefetchVideoCues(video);
+      const cueText = full.replace(/\s+/g, ' ').trim();
+      if (cueText && needsTranslation(cueText) && !isNoiseText(cueText)) renderSubtitleOverlay(block, cueText);
+      return;
     }
 
     const spansPerSentence = sentences.map(function () { return []; });
@@ -734,10 +1172,9 @@
       const trans = document.createElement(TRANS_TAG);
       trans.setAttribute('translate', 'no');
       trans.classList.add('notranslate');
-      if (fast) trans.classList.add('ppp-sub');
       if (!settings.enabled) trans.classList.add('ppp-hidden');
       anchor.parentNode.insertBefore(trans, anchor.nextSibling);
-      translateText(sentences[k].text, fast ? { fast: true, el: trans } : null).then(function (t) {
+      translateText(sentences[k].text).then(function (t) {
         if (!t || !t.trim()) {
           if (trans.parentNode) trans.remove();
           return;
@@ -847,19 +1284,49 @@
     }
     pendingBlocks.clear();
     batchQueue.length = 0;
+    prefetchQueue.length = 0;
     if (batchTimer) {
       clearTimeout(batchTimer);
       batchTimer = null;
     }
+    if (prefetchTimer) {
+      clearTimeout(prefetchTimer);
+      prefetchTimer = null;
+    }
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    timerSub = false;
   }
 
   const pending = [];
   let timer = null;
+  let timerSub = false;
 
   function flush() {
     timer = null;
+    timerSub = false;
     const batch = pending.splice(0, pending.length);
     for (let i = 0; i < batch.length; i++) processRoot(batch[i]);
+  }
+
+  function scheduleFlush(subtitle) {
+    if (subtitle) {
+      if (!timer) {
+        timer = setTimeout(flush, SUB_DEBOUNCE_MS);
+        timerSub = true;
+      } else if (!timerSub) {
+        clearTimeout(timer);
+        timer = setTimeout(flush, SUB_DEBOUNCE_MS);
+        timerSub = true;
+      }
+      return;
+    }
+    if (!timer) {
+      timer = setTimeout(flush, DEBOUNCE_MS);
+      timerSub = false;
+    }
   }
 
   const observer = new MutationObserver(function (mutations) {
@@ -893,8 +1360,7 @@
       }
     }
     if (!pending.length) return;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(flush, hasSubtitle ? SUB_DEBOUNCE_MS : DEBOUNCE_MS);
+    scheduleFlush(hasSubtitle);
   });
 
   function cleanupGoogleWidget() {
@@ -953,8 +1419,12 @@
         settings.provider = chosenProvider === 'deepseek' ? 'deepseek' : 'google';
         settings.blockGoogleWidget = res.blockGoogleWidget !== false;
         settings.skipChinesePages = res.skipChinesePages !== false;
+        prefetchBatchSize = readIntOverride('pppSubBatch', settings.provider === 'deepseek' ? 12 : 8);
+        prefetchAheadSec = readIntOverride('pppSubAhead', settings.provider === 'deepseek' ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE);
+        initStats();
         cleanupGoogleWidget();
         [600, 1500, 3000].forEach(function (delay) { setTimeout(cleanupGoogleWidget, delay); });
+        prefetchAllVideos();
         setTimeout(function () {
           if (!settings.enabled) return;
           if (settings.skipChinesePages && pageIsChinese()) {
@@ -967,8 +1437,12 @@
       });
     });
 
-    chrome.storage.onChanged.addListener(function (changes, area) {
-      if (area === 'local') {
+    window.addEventListener('pagehide', function () {
+      flushStats();
+      logStats();
+    });
+
+    chrome.storage.onChanged.addListener(function (changes, area) {      if (area === 'local') {
         if (changes.fileConfig) {
           settings.fileConfig = changes.fileConfig.newValue || null;
           warnedNoKey = false;
@@ -978,6 +1452,9 @@
       if (area !== 'sync') return;
       if (changes.provider) {
         settings.provider = changes.provider.newValue === 'deepseek' ? 'deepseek' : 'google';
+        prefetchBatchSize = readIntOverride('pppSubBatch', settings.provider === 'deepseek' ? 12 : 8);
+        prefetchAheadSec = readIntOverride('pppSubAhead', settings.provider === 'deepseek' ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE);
+        initStats();
         warnedNoKey = false;
       }
       if (changes.blockGoogleWidget) {
