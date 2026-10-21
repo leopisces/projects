@@ -1,5 +1,8 @@
 {
   "deepseekApiKey": "",
   "provider": "deepseek",
-  "model": "deepseek-flash"
+  "model": "deepseek-flash",
+  "arkApiKey": "",
+  "arkModel": "ark-code-latest",
+  "arkBaseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3"
 }

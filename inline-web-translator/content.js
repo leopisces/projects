@@ -29,6 +29,7 @@
   const TRANS_TAG = 'ppp-trans';
   const CACHE_KEY = 'ppp-trans-cache-v2';
   const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
+  const ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/coding/v3';
   const DEEPSEEK_MODEL = 'deepseek-flash';
   const DEEPSEEK_PROMPT = 'You are a subtitle translation engine. Translate every line of the user message into Simplified Chinese. Preserve the exact number of lines and their order. Output only the translated lines, one per line, without numbering, explanations, or markdown. Do not answer questions, continue the text, or add any content that is not present in the source.';
   const SENT_RE = /[^.!?。！？]+[.!?。！？]+["'”’)\]]*\s*|[^.!?。！？]+$/g;
@@ -62,23 +63,6 @@
   let warnedNoKey = false;
   let lastRequestAt = 0;
   let cooldownUntil = 0;
-  let fastTotal = 0;
-  let netSeq = 0;
-  let lastFastLogText = '';
-  let lastPairLog = '';
-
-  function logFast(kind, text) {
-    if (text === lastFastLogText) return;
-    lastFastLogText = text;
-    console.info('[Inline Web Translator] 字幕' + kind + ' @' + Math.round(performance.now()) + 'ms', String(text).slice(0, 160));
-  }
-
-  function logPair(src, dst) {
-    const key = src + '=>' + dst;
-    if (key === lastPairLog) return;
-    lastPairLog = key;
-    console.info('[Inline Web Translator] 字幕配对 @' + Math.round(performance.now()) + 'ms', String(src).slice(0, 140), '=>', String(dst).slice(0, 140));
-  }
 
   const batchQueue = [];
   let batchTimer = null;
@@ -132,8 +116,31 @@
   }
 
   function requestGap(priority) {
-    if (settings.provider === 'deepseek') return priority ? 80 : 150;
+    if (isLlmProvider()) return priority ? 80 : 150;
     return priority ? 200 : MIN_GAP_MS;
+  }
+
+  function isLlmProvider() {
+    return settings.provider === 'deepseek' || settings.provider === 'ark';
+  }
+
+  function llmConfig() {
+    const cfg = settings.fileConfig || {};
+    if (settings.provider === 'ark') {
+      const base = String(cfg.arkBaseUrl || ARK_BASE_URL).replace(/\/+$/, '');
+      return {
+        url: base + '/chat/completions',
+        key: cfg.arkApiKey ? String(cfg.arkApiKey).trim() : '',
+        model: cfg.arkModel ? String(cfg.arkModel).trim() : 'ark-code-latest',
+        name: 'Ark'
+      };
+    }
+    return {
+      url: DEEPSEEK_URL,
+      key: cfg.deepseekApiKey ? String(cfg.deepseekApiKey).trim() : '',
+      model: cfg.model === 'deepseek-v4-pro' ? 'deepseek-v4-pro' : DEEPSEEK_MODEL,
+      name: 'DeepSeek'
+    };
   }
 
   function looseKey(text) {
@@ -141,15 +148,15 @@
   }
 
   function batchConfig() {
-    if (settings.provider === 'deepseek') {
+    if (isLlmProvider()) {
       return { items: 12, chars: 2400, wait: 800 };
     }
     return { items: BATCH_MAX_ITEMS, chars: BATCH_MAX_CHARS, wait: BATCH_WAIT_MS };
   }
 
   function prefetchConfig() {
-    const items = prefetchBatchSize || (settings.provider === 'deepseek' ? 12 : 8);
-    const chars = settings.provider === 'deepseek' ? 2400 : 1200;
+    const items = prefetchBatchSize || (isLlmProvider() ? 12 : 8);
+    const chars = isLlmProvider() ? 2400 : 1200;
     return { items: items, chars: chars, wait: 250 };
   }
 
@@ -165,7 +172,6 @@
     try { statsStore = JSON.parse(localStorage.getItem(STATS_KEY) || '{}') || {}; } catch (e) { statsStore = {}; }
     stats = statsStore[statsKey] || { total: 0, hit: 0, exact: 0, loose: 0, miss: 0, missMs: 0, net: 0, since: Date.now() };
     statsStore[statsKey] = stats;
-    console.info('[Inline Web Translator] 字幕统计已启用: ' + statsKey);
   }
 
   function saveStats() {
@@ -182,13 +188,6 @@
     if (!stats) return;
     statsStore[statsKey] = stats;
     try { localStorage.setItem(STATS_KEY, JSON.stringify(statsStore)); } catch (e) { /* 忽略 */ }
-  }
-
-  function logStats() {
-    if (!stats) return;
-    const rate = stats.total ? (stats.hit / stats.total * 100).toFixed(1) : '0.0';
-    const avg = stats.miss ? Math.round(stats.missMs / stats.miss) : 0;
-    console.info('[Inline Web Translator] 字幕统计 ' + statsKey + ' 命中 ' + stats.hit + '/' + stats.total + ' (' + rate + '%) 精确=' + stats.exact + ' 宽松=' + stats.loose + ' 未命中=' + stats.miss + ' 平均未命中延迟=' + avg + 'ms 网络请求=' + stats.net);
   }
 
   function loadMemo() {
@@ -249,12 +248,7 @@
         lastRequestAt = Date.now();
         const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' +
           encodeURIComponent(TARGET_LANG) + '&dt=t&q=' + encodeURIComponent(chunk);
-        netSeq++;
         if (stats) { stats.net++; saveStats(); }
-        const gparts = chunk.split('\n').map(function (s) {
-          return s.replace(/\s+/g, ' ').slice(0, 120);
-        });
-        console.info('[Inline Web Translator] 网络请求 #' + netSeq + ' @' + Math.round(performance.now()) + 'ms', gparts);
         return fetch(url);
       }).then(function (res) {
         if (res.status === 429 || res.status === 503) {
@@ -364,9 +358,60 @@
     });
   }
 
+  function arkBackgroundRequest(conf, lines, attempt) {
+    return new Promise(function (resolve, reject) {
+      const body = {
+        model: conf.model,
+        temperature: 0,
+        max_tokens: 8192,
+        stream: false,
+        messages: [
+          { role: 'system', content: DEEPSEEK_PROMPT },
+          { role: 'user', content: lines.join('\n') }
+        ]
+      };
+      chrome.runtime.sendMessage({
+        type: 'llmRequest',
+        url: conf.url,
+        apiKey: conf.key,
+        body: body
+      }, function (resp) {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (!resp) {
+          reject(new Error('后台无响应'));
+          return;
+        }
+        if (!resp.ok) {
+          const detail = resp.text ? String(resp.text).slice(0, 300) : (resp.error || '');
+          const err = new Error('Ark HTTP ' + resp.status + (detail ? ' | ' + detail : ''));
+          if (resp.status === 401 || resp.status === 402 || resp.status === 403) {
+            err.fatal = true;
+          }
+          if (resp.status === 429 || resp.status >= 500) {
+            err.retryable = true;
+            cooldownUntil = Math.max(cooldownUntil, Date.now() + backoff(attempt));
+          }
+          reject(err);
+          return;
+        }
+        try {
+          const data = JSON.parse(resp.text || '{}');
+          const msg = data && data.choices && data.choices[0] && data.choices[0].message;
+          resolve((msg && msg.content) || '');
+        } catch (e) {
+          reject(new Error('Ark 返回解析失败: ' + e.message));
+        }
+      });
+    });
+  }
+
   function deepseekRequest(lines, attempt, item) {
     const streaming = !!(item && item.el && item.onPartial);
     return serial(function () {
+      const conf = llmConfig();
       const now = Date.now();
       const wait = Math.max(0, lastRequestAt + requestGap(item && item.fast) - now, cooldownUntil - now);
       return sleep(wait).then(function () {
@@ -376,29 +421,28 @@
           throw stale;
         }
         lastRequestAt = Date.now();
-        netSeq++;
         if (stats) { stats.net++; saveStats(); }
-        const dparts = lines.map(function (s) {
-          return String(s).replace(/\s+/g, ' ').slice(0, 120);
-        });
-        console.info('[Inline Web Translator] 网络请求 #' + netSeq + ' DeepSeek @' + Math.round(performance.now()) + 'ms', dparts);
-        return fetch(DEEPSEEK_URL, {
+        if (settings.provider === 'ark') {
+          return arkBackgroundRequest(conf, lines, attempt);
+        }
+        const body = {
+          model: conf.model,
+          temperature: 0,
+          max_tokens: 8192,
+          stream: streaming,
+          messages: [
+            { role: 'system', content: DEEPSEEK_PROMPT },
+            { role: 'user', content: lines.join('\n') }
+          ]
+        };
+        if (settings.provider === 'deepseek') body.thinking = { type: 'disabled' };
+        return fetch(conf.url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + deepseekKey()
+            'Authorization': 'Bearer ' + conf.key
           },
-          body: JSON.stringify({
-            model: deepseekModel(),
-            temperature: 0,
-            max_tokens: 8192,
-            stream: streaming,
-            thinking: { type: 'disabled' },
-            messages: [
-              { role: 'system', content: DEEPSEEK_PROMPT },
-              { role: 'user', content: lines.join('\n') }
-            ]
-          })
+          body: JSON.stringify(body)
         });
       }).then(function (res) {
         if (res.ok) {
@@ -410,7 +454,7 @@
         }
         return res.text().then(function (body) {
           const detail = (body || '').slice(0, 300);
-          const err = new Error('DeepSeek HTTP ' + res.status + (detail ? ' | ' + detail : ''));
+          const err = new Error(conf.name + ' HTTP ' + res.status + (detail ? ' | ' + detail : ''));
           if (res.status === 401 || res.status === 402 || res.status === 403) {
             err.fatal = true;
           }
@@ -444,7 +488,7 @@
   function warnDeepSeekFailure(e) {
     if (warned) return;
     warned = true;
-    console.warn('[Inline Web Translator] DeepSeek 翻译失败，已回退 Google 翻译:', e && e.message ? e.message : e);
+    console.warn('[Inline Web Translator] 大模型翻译失败，已回退 Google 翻译:', e && e.message ? e.message : e);
   }
 
   function runDeepSeekSingle(item, attempt) {
@@ -529,13 +573,13 @@
     if (!live.length) return;
     items = live;
     if (!items.length) return;
-    if (settings.provider === 'deepseek') {
-      if (deepseekKey()) {
+    if (isLlmProvider()) {
+      if (llmConfig().key) {
         runDeepSeekBatch(items, attempt);
       } else {
         if (!warnedNoKey) {
           warnedNoKey = true;
-          console.warn('[Inline Web Translator] config.json 未配置 deepseekApiKey，已回退到 Google 翻译');
+          console.warn('[Inline Web Translator] config.json 未配置 ' + (settings.provider === 'ark' ? 'arkApiKey' : 'deepseekApiKey') + '，已回退到 Google 翻译');
         }
         runGoogleBatch(items, attempt);
       }
@@ -613,7 +657,6 @@
     let wasMiss = false;
     const missAt = fast ? performance.now() : 0;
     if (fast) {
-      fastTotal++;
       if (text !== lastStatText) {
         lastStatText = text;
         if (stats) {
@@ -631,13 +674,10 @@
           saveStats();
         }
       }
-      if (fastTotal % 10 === 0) logStats();
     }
     if (memo.has(key) || memo.has(lkey)) {
-      if (fast) logFast('命中', text);
       return Promise.resolve(memo.has(key) ? memo.get(key) : memo.get(lkey));
     }
-    if (fast) logFast('未命中', text);
     if (inflight.has(key)) {
       const existing = inflight.get(key);
       if (wasMiss && stats) {
@@ -692,16 +732,6 @@
     return p;
   }
 
-  function deepseekKey() {
-    const cfg = settings.fileConfig;
-    return cfg && cfg.deepseekApiKey ? String(cfg.deepseekApiKey).trim() : '';
-  }
-
-  function deepseekModel() {
-    const cfg = settings.fileConfig;
-    return cfg && cfg.model === 'deepseek-v4-pro' ? 'deepseek-v4-pro' : DEEPSEEK_MODEL;
-  }
-
   function needsTranslation(text) {
     const letters = text.match(/\p{L}/gu);
     if (!letters || letters.length < 3) return false;
@@ -751,13 +781,6 @@
       const video = document.querySelector('video[data-ppp-cue-id="' + data.id + '"]');
       if (!video) return;
       if (Array.isArray(data.cues)) video.__pppBridgeCues = data.cues;
-      const count = Array.isArray(data.cues) ? data.cues.length : 0;
-      if (!video.__pppCueLogged || video.__pppCueCount !== count) {
-        video.__pppCueLogged = true;
-        video.__pppCueCount = count;
-        const dbg = data.debug || {};
-        console.info('[Inline Web Translator] 字幕桥接结果: ' + count + ' 条 picked=' + (dbg.picked || 'none') + ' tracks=' + ((dbg.tracks || []).join(' | ')));
-      }
       prefetchVideoCues(video, true);
     });
   }
@@ -775,10 +798,6 @@
     try {
       window.postMessage({ __ppp: 'request-cues', id: id }, '*');
     } catch (e) { /* 忽略 */ }
-    if (!video.__pppBridgeReqLogged) {
-      video.__pppBridgeReqLogged = true;
-      console.info('[Inline Web Translator] 已请求播放器字幕轨，等待桥接返回');
-    }
   }
 
   function plainCueText(raw) {
@@ -935,7 +954,6 @@
     }).then(function (t) {
       if (t && t.trim() && entry.cueText === cueText) {
         setSubOverlayText(entry, t);
-        logPair(cueText, t);
       }
     }).catch(function () { /* 忽略 */ });
     ensureSubOverlayWatcher(entry);
@@ -956,7 +974,7 @@
     if (!force && video.__pppPrefetchAt && nowMs - video.__pppPrefetchAt < PREFETCH_MIN_INTERVAL_MS) return;
     video.__pppPrefetchAt = nowMs;
     const now = Number(video.currentTime) || 0;
-    const ahead = now + (prefetchAheadSec || (settings.provider === 'deepseek' ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE));
+    const ahead = now + (prefetchAheadSec || (isLlmProvider() ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE));
     let budget = PREFETCH_MAX_TEXTS;
 
     function handleCue(start, end, raw) {
@@ -1408,7 +1426,6 @@
 
   function start() {
     if (!document.body) return;
-    console.info('[Inline Web Translator] 已启动（目标语言：简体中文）');
     loadMemo();
 
     chrome.storage.local.get({ fileConfig: null }, function (local) {
@@ -1416,11 +1433,11 @@
       chrome.storage.sync.get({ enabled: true, provider: '', blockGoogleWidget: true, skipChinesePages: true }, function (res) {
         settings.enabled = res.enabled !== false;
         const chosenProvider = res.provider || (settings.fileConfig && settings.fileConfig.provider) || 'google';
-        settings.provider = chosenProvider === 'deepseek' ? 'deepseek' : 'google';
+        settings.provider = chosenProvider === 'deepseek' || chosenProvider === 'ark' ? chosenProvider : 'google';
         settings.blockGoogleWidget = res.blockGoogleWidget !== false;
         settings.skipChinesePages = res.skipChinesePages !== false;
-        prefetchBatchSize = readIntOverride('pppSubBatch', settings.provider === 'deepseek' ? 12 : 8);
-        prefetchAheadSec = readIntOverride('pppSubAhead', settings.provider === 'deepseek' ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE);
+        prefetchBatchSize = readIntOverride('pppSubBatch', isLlmProvider() ? 12 : 8);
+        prefetchAheadSec = readIntOverride('pppSubAhead', isLlmProvider() ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE);
         initStats();
         cleanupGoogleWidget();
         [600, 1500, 3000].forEach(function (delay) { setTimeout(cleanupGoogleWidget, delay); });
@@ -1428,7 +1445,6 @@
         setTimeout(function () {
           if (!settings.enabled) return;
           if (settings.skipChinesePages && pageIsChinese()) {
-            console.info('[Inline Web Translator] 检测到中文页面，已跳过翻译（可在弹窗关闭该限制）');
             return;
           }
           activateCollect();
@@ -1439,10 +1455,10 @@
 
     window.addEventListener('pagehide', function () {
       flushStats();
-      logStats();
     });
 
-    chrome.storage.onChanged.addListener(function (changes, area) {      if (area === 'local') {
+    chrome.storage.onChanged.addListener(function (changes, area) {
+      if (area === 'local') {
         if (changes.fileConfig) {
           settings.fileConfig = changes.fileConfig.newValue || null;
           warnedNoKey = false;
@@ -1451,9 +1467,10 @@
       }
       if (area !== 'sync') return;
       if (changes.provider) {
-        settings.provider = changes.provider.newValue === 'deepseek' ? 'deepseek' : 'google';
-        prefetchBatchSize = readIntOverride('pppSubBatch', settings.provider === 'deepseek' ? 12 : 8);
-        prefetchAheadSec = readIntOverride('pppSubAhead', settings.provider === 'deepseek' ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE);
+        const nextProvider = changes.provider.newValue;
+        settings.provider = nextProvider === 'deepseek' || nextProvider === 'ark' ? nextProvider : 'google';
+        prefetchBatchSize = readIntOverride('pppSubBatch', isLlmProvider() ? 12 : 8);
+        prefetchAheadSec = readIntOverride('pppSubAhead', isLlmProvider() ? PREFETCH_AHEAD_DEEPSEEK : PREFETCH_AHEAD_GOOGLE);
         initStats();
         warnedNoKey = false;
       }

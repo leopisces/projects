@@ -54,12 +54,24 @@ function loadConfigFile() {
         fileConfig: {
           deepseekApiKey: cfg && typeof cfg.deepseekApiKey === 'string' ? cfg.deepseekApiKey.trim() : '',
           provider: cfg && typeof cfg.provider === 'string' ? cfg.provider.trim() : '',
-          model: cfg && typeof cfg.model === 'string' ? cfg.model.trim() : ''
+          model: cfg && typeof cfg.model === 'string' ? cfg.model.trim() : '',
+          arkApiKey: cfg && typeof cfg.arkApiKey === 'string' ? cfg.arkApiKey.trim() : '',
+          arkModel: cfg && typeof cfg.arkModel === 'string' ? cfg.arkModel.trim() : '',
+          arkBaseUrl: cfg && typeof cfg.arkBaseUrl === 'string' ? cfg.arkBaseUrl.trim() : ''
         }
       });
     })
     .catch(function () {
-      chrome.storage.local.set({ fileConfig: { deepseekApiKey: '', provider: '', model: '' } });
+      chrome.storage.local.set({
+        fileConfig: {
+          deepseekApiKey: '',
+          provider: '',
+          model: '',
+          arkApiKey: '',
+          arkModel: '',
+          arkBaseUrl: ''
+        }
+      });
     });
 }
 
@@ -77,6 +89,23 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (msg && msg.type === 'reloadFileConfig') {
     loadConfigFile();
     sendResponse({ ok: true });
+    return;
+  }
+  if (msg && msg.type === 'llmRequest') {
+    const headers = { 'Content-Type': 'application/json' };
+    if (msg.apiKey) headers.Authorization = 'Bearer ' + msg.apiKey;
+    fetch(msg.url, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(msg.body || {})
+    }).then(function (res) {
+      return res.text().then(function (text) {
+        sendResponse({ ok: res.ok, status: res.status, text: text });
+      });
+    }).catch(function (e) {
+      sendResponse({ ok: false, status: 0, error: String(e && e.message ? e.message : e) });
+    });
+    return true;
   }
 });
 

@@ -13,7 +13,7 @@
       chrome.storage.sync.get(['enabled', 'provider', 'blockGoogleWidget', 'skipChinesePages'], function (res) {
         toggle.checked = res.enabled !== false;
         var chosen = res.provider || fileProvider || 'google';
-        provider.value = chosen === 'deepseek' ? 'deepseek' : 'google';
+        provider.value = chosen === 'deepseek' || chosen === 'ark' ? chosen : 'google';
         blockWidget.checked = res.blockGoogleWidget !== false;
         skipChinese.checked = res.skipChinesePages !== false;
       });

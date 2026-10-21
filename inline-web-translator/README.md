@@ -16,7 +16,7 @@
 - 动态加载内容（无限滚动、SPA 切换）自动跟进翻译
 - 中文页面默认整页跳过（依据 `<html lang>` 与正文汉字占比），不干扰中文网站
 - 自动屏蔽网页自带的 Google 翻译（网络拦截 + 页面清理 + `notranslate` 标记），避免它把译文改回英文
-- 两种翻译引擎可选：Google 翻译（免费）或 DeepSeek 大模型（需 API Key，可在弹窗中填写）
+- 三种翻译引擎可选：Google 翻译（免费）、DeepSeek 大模型或火山方舟（后两者需 API Key）
 - 工具栏弹窗可一键开关翻译（译文固定为简体中文）
 
 ## 安装步骤
@@ -42,19 +42,25 @@
 
 ## 本地配置文件 config.json
 
-DeepSeek 的 API Key 不从弹窗输入，而是读取扩展目录下的 `config.json`（与 `manifest.json` 同级）：
+DeepSeek / 火山方舟的 API Key 不从弹窗输入，而是读取扩展目录下的 `config.json`（与 `manifest.json` 同级）：
 
 ```json
 {
   "deepseekApiKey": "sk-你的key",
   "provider": "deepseek",
-  "model": "deepseek-flash"
+  "model": "deepseek-flash",
+  "arkApiKey": "ark-你的key",
+  "arkModel": "ark-code-latest",
+  "arkBaseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3"
 }
 ```
 
-- `deepseekApiKey`：必填，填入你的 DeepSeek Key
-- `provider`：默认引擎，`deepseek` 或 `google`；弹窗里的手动选择优先
+- `deepseekApiKey`：DeepSeek Key
+- `provider`：默认引擎，`deepseek`、`google` 或 `ark`；弹窗里的手动选择优先
 - `model`：`deepseek-flash`（默认，快且便宜）或 `deepseek-v4-pro`
+- `arkApiKey`：火山方舟 Coding Plan 的 API Key
+- `arkModel`：Coding Plan 模型名，默认 `ark-code-latest`（跟随控制台选择）；也可填 `doubao-seed-2.1-lite`、`deepseek-v4.1-flash`、`kimi-k2.8-preview` 等
+- `arkBaseUrl`：固定为 `https://ark.cn-beijing.volces.com/api/coding/v3`，**不要使用 `/api/v3`**（那会走按量付费，不扣 Coding Plan 额度）
 
 修改后需在 `chrome://extensions` 点击扩展的刷新按钮，再刷新网页。
 
@@ -67,10 +73,10 @@ DeepSeek 的 API Key 不从弹窗输入，而是读取扩展目录下的 `config
 - 阅读顺序：原句 → 对应译文 → 下一句原句 → 对应译文
 - 点击工具栏扩展图标：
   - **启用翻译**：总开关，关闭后隐藏全部译文，开启后恢复并继续翻译新内容
-  - **翻译引擎**：可选 Google 翻译（免费）或 DeepSeek AI
+  - **翻译引擎**：可选 Google 翻译（免费）、DeepSeek AI 或火山方舟
   - **屏蔽网页 Google 翻译**：默认开启，阻止网站嵌入的 Google 翻译把页面改回英文
   - **中文页面自动跳过**：默认开启，检测到中文网站时整页不翻译；需要翻译中文站里的英文内容时关闭它
-- 选择 DeepSeek 前，先在扩展目录的 `config.json` 里填入 `deepseekApiKey`，保存后在 `chrome://extensions` 点击刷新
+- 选择 DeepSeek 或火山方舟前，先在扩展目录的 `config.json` 里填入对应 Key，保存后在 `chrome://extensions` 点击刷新
 - 所有外文内容固定翻译为简体中文
 
 ## 原理简述
@@ -89,12 +95,11 @@ DeepSeek 的 API Key 不从弹窗输入，而是读取扩展目录下的 `config
 - 通过常见播放器字幕选择器与「类名含 subtitle/caption 且祖先含 `<video>`」的通用规则识别字幕块；字幕块跳过 `IntersectionObserver` 与攒批，`MutationObserver` 对字幕变更只用 40ms 防抖并立即单条请求，占位译文已被播放器移除时不再发送请求
 - 字幕快速请求享有更短限速间隔（Google 200ms / DeepSeek 80ms）；字幕按整条 cue 作为一个翻译单位；预取默认 12 条（DeepSeek）/ 8 条（Google）一批，走独立的预取队列并优先于页面正文，提前翻译并写入缓存，cue 出现时直接命中缓存；视频使用 video.js / Brightcove 时由 MAIN world 桥接脚本通过 `videojs.getPlayer()` / `bc.getPlayer()` 读取字幕轨，只取 `kind=subtitles/captions` 且 `mode=showing` 的轨道，忽略元数据与隐藏轨
 - 字幕译文写入播放器容器内的独立悬浮层（不修改播放器字幕节点），播放器持续重写字幕时也不会闪断；暂停时保持显示，cue 消失后自动隐藏；DeepSeek 未命中的单条字幕使用流式返回，边生成边显示
-- 控制台会输出字幕命中率统计（`字幕统计 <引擎>|b<批大小>|a<前瞻秒数> ...`），可用 `localStorage.pppSubBatch` / `localStorage.pppSubAhead` 调整后对比
 - 页面级语言检测：`<html lang>` 以 `zh` 开头，或正文采样中汉字占字母总数 30% 以上，则判定为中文页面并整页跳过
 - `early.js` 在 `document_start` 注入：给 `html` 打上 `translate="no"` / `notranslate`，清除 `googtrans` Cookie，并持续移除 Google 翻译控件与横幅
 - 后台 Service Worker 通过 `declarativeNetRequest` 动态规则拦截 `translate_a/element.js` 与 `translate-pa.googleapis.com`
 - 我们插入的每个句块与译文都带 `translate="no"`，任何残留翻译器都不会再改动它们
-- 选择 DeepSeek 时改为调用 `api.deepseek.com/chat/completions`，模型 `deepseek-flash`（关闭思考模式，`temperature: 0`），多句用换行拼接后一次翻译，返回按行拆回；行数不匹配时自动二分重试或降级逐句
+- 选择 DeepSeek 时调用 `api.deepseek.com/chat/completions`，模型 `deepseek-flash`（关闭思考模式，`temperature: 0`）；选择火山方舟时调用 `https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions`，模型默认 `ark-code-latest`；两者均为 OpenAI 兼容格式，多句用换行拼接后一次翻译，返回按行拆回；行数不匹配时回退 Google 翻译本批
 - `chrome.storage.sync` 保存开关状态、引擎选择等偏好；API Key 由后台从 `config.json` 读取后缓存到 `chrome.storage.local`
 
 ## 注意事项
@@ -102,7 +107,7 @@ DeepSeek 的 API Key 不从弹窗输入，而是读取扩展目录下的 `config
 - 翻译请求走公网谷歌翻译接口，需要网络能访问 googleapis.com；句子较多时请求量较大，可能被限流
 - 中文网站里如果有想对照阅读的英文文章，关闭「中文页面自动跳过」即可
 - 如果页面在本插件生效前已经被网站自带的翻译改过，刷新一次页面即可恢复
-- DeepSeek 引擎会消耗你账号的 token 额度；API Key 保存在本地 `config.json`，不会上传到任何第三方
+- DeepSeek / 火山方舟引擎会消耗对应账号的 token 或 Coding Plan 额度；API Key 保存在本地 `config.json`，不会上传到任何第三方
 - 涉及敏感信息的页面（网银、内部系统等）建议关闭翻译开关
 - 仅支持以 DOM 元素渲染的字幕（YouTube、Bilibili、Video.js 等）；浏览器原生 `<video><track>` 字幕渲染在浏览器内部，扩展无法读取和翻译
 - 播放器控制栏与控件（video.js / Plyr / JW Player / YouTube 控件等）不翻译，避免替换播放器内部缓存的文本节点导致时间显示重复或告警

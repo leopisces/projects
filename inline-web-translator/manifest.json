@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Inline Web Translator",
-  "version": "1.12.7",
+  "version": "1.13.2",
   "description": "自动识别网页中的外语句子，逐句翻译为中文并显示在每句原文下方，适合学习与查阅资料。",
   "permissions": ["storage", "declarativeNetRequest"],
   "host_permissions": [
     "https://translate.googleapis.com/*",
     "https://translate-pa.googleapis.com/*",
     "https://translate.google.com/*",
-    "https://api.deepseek.com/*"
+    "https://api.deepseek.com/*",
+    "https://ark.cn-beijing.volces.com/*"
   ],
   "background": {
     "service_worker": "background.js"
