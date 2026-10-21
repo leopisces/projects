@@ -888,8 +888,15 @@
     if (!container.__pppHoverBound) {
       container.__pppHoverBound = true;
       try {
-        container.addEventListener('mouseenter', function () { container.classList.add('ppp-player-hover'); });
-        container.addEventListener('mouseleave', function () { container.classList.remove('ppp-player-hover'); });
+        container.addEventListener('mouseenter', function () {
+          if (!settings.hoverReveal || !settings.enabled) return;
+          const entry = subOverlays.get(container);
+          if (!entry || !entry.el || !entry.el.textContent.trim()) return;
+          const block = entry.block;
+          const rect = block && block.getBoundingClientRect ? block.getBoundingClientRect() : container.getBoundingClientRect();
+          showHoverTip(entry.el.textContent, rect);
+        });
+        container.addEventListener('mouseleave', function () { hideHoverTip(); });
       } catch (e) { /* 忽略 */ }
     }
     entry = { el: el, block: null, cueText: '', timer: null };
@@ -1421,56 +1428,61 @@
     return null;
   }
 
-  function revealTrans(trans) {
-    if (!trans) return;
-    if (trans.__pppHideTimer) {
-      clearTimeout(trans.__pppHideTimer);
-      trans.__pppHideTimer = null;
-    }
-    trans.classList.add('ppp-reveal');
+  let hoverTip = null;
+
+  function getHoverTip() {
+    if (hoverTip && hoverTip.isConnected) return hoverTip;
+    hoverTip = document.createElement(TRANS_TAG);
+    hoverTip.setAttribute('translate', 'no');
+    hoverTip.classList.add('notranslate', 'ppp-hover-tip');
+    document.body.appendChild(hoverTip);
+    return hoverTip;
   }
 
-  function hideTransSoon(trans) {
-    if (!trans) return;
-    if (trans.__pppHideTimer) clearTimeout(trans.__pppHideTimer);
-    trans.__pppHideTimer = setTimeout(function () {
-      trans.__pppHideTimer = null;
-      trans.classList.remove('ppp-reveal');
-    }, 120);
+  function showHoverTip(text, rect) {
+    if (!settings.hoverReveal || !settings.enabled || !text || !rect) return;
+    const tip = getHoverTip();
+    tip.textContent = text;
+    const margin = 6;
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    let left = rect.left + rect.width / 2;
+    let top = rect.top - tip.offsetHeight - margin;
+    if (top < 4) top = 4;
+    const half = tip.offsetWidth / 2;
+    if (left - half < 4) left = half + 4;
+    if (left + half > vw - 4) left = vw - half - 4;
+    tip.style.left = Math.round(left) + 'px';
+    tip.style.top = Math.round(top) + 'px';
+  }
+
+  function hideHoverTip() {
+    if (hoverTip) hoverTip.textContent = '';
   }
 
   function setupHoverReveal() {
     if (setupHoverReveal.done) return;
     setupHoverReveal.done = true;
     document.addEventListener('mouseover', function (event) {
-      if (!settings.hoverReveal) return;
+      if (!settings.hoverReveal || !settings.enabled) return;
       const target = event.target;
       if (!target || !target.closest) return;
       const sent = target.closest(SENT_TAG);
-      if (sent) {
-        revealTrans(transForSent(sent));
-        return;
-      }
-      const trans = target.closest(TRANS_TAG);
-      if (trans) revealTrans(trans);
+      if (!sent) return;
+      const trans = transForSent(sent);
+      if (trans && trans.textContent.trim()) showHoverTip(trans.textContent, sent.getBoundingClientRect());
     });
     document.addEventListener('mouseout', function (event) {
       if (!settings.hoverReveal) return;
       const target = event.target;
       if (!target || !target.closest) return;
-      const related = event.relatedTarget;
       const sent = target.closest(SENT_TAG);
-      if (sent) {
-        if (related && related.closest && related.closest(SENT_TAG) === sent) return;
-        hideTransSoon(transForSent(sent));
-        return;
-      }
-      const trans = target.closest(TRANS_TAG);
-      if (trans) {
-        if (related && related.closest && (related.closest(TRANS_TAG) === trans || related.closest(SENT_TAG))) return;
-        hideTransSoon(trans);
-      }
+      if (!sent) return;
+      const related = event.relatedTarget;
+      if (related && related.closest && related.closest(SENT_TAG) === sent) return;
+      hideHoverTip();
     });
+    window.addEventListener('scroll', hideHoverTip, true);
+    window.addEventListener('resize', hideHoverTip);
   }
 
   function pageIsChinese() {
