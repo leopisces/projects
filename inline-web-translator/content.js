@@ -48,6 +48,7 @@
     '[data-purpose="captions"]'
   ].join(',');
   const SUBTITLE_WEAK = '[class*="subtitle" i],[class*="subtitles" i],[class*="caption" i]';
+  const EXCLUDE_UI_SELECTOR = '.vjs-control-bar,.vjs-control-text,.vjs-time-control,.vjs-big-play-button,.vjs-poster,.vjs-loading-spinner,.vjs-error-display,.vjs-modal-dialog,.vjs-menu,.plyr__controls,.jw-controlbar,.ytp-chrome-bottom';
 
   const settings = { enabled: true, provider: 'google', blockGoogleWidget: true, skipChinesePages: true, fileConfig: null };
   const TARGET_LANG = 'zh-CN';
@@ -626,6 +627,7 @@
           const p = node.parentElement;
           if (!p) return NodeFilter.FILTER_REJECT;
           if (EXCLUDE_TAGS[p.tagName]) return NodeFilter.FILTER_REJECT;
+          if (p.closest(EXCLUDE_UI_SELECTOR)) return NodeFilter.FILTER_REJECT;
           if (p.closest(SENT_TAG + ',' + TRANS_TAG)) return NodeFilter.FILTER_REJECT;
           return NodeFilter.FILTER_ACCEPT;
         }
@@ -665,6 +667,7 @@
     if (node.nodeType === 3) {
       const p = node.parentElement;
       if (!p) return;
+      if (p.closest(EXCLUDE_UI_SELECTOR)) return;
       if (p.closest(SENT_TAG + ',' + TRANS_TAG)) return;
       const block = findBlockAncestor(p);
       if (block && !block.hasAttribute(SKIP_ATTR)) collect(block);
@@ -715,6 +718,7 @@
         const parent = target && target.parentElement;
         if (!parent || !target.nodeValue || !target.nodeValue.trim()) continue;
         if (parent.closest(SENT_TAG + ',' + TRANS_TAG)) continue;
+        if (parent.closest(EXCLUDE_UI_SELECTOR)) continue;
         if (isSubtitleElement(parent)) {
           pending.push(target);
           hasSubtitle = true;
@@ -728,8 +732,9 @@
           if (isOwnNode(node)) continue;
           if (node.closest && node.closest(SENT_TAG + ',' + TRANS_TAG)) continue;
         }
-        pending.push(node);
         const el = node.nodeType === 1 ? node : node.parentElement;
+        if (el && el.closest && el.closest(EXCLUDE_UI_SELECTOR)) continue;
+        pending.push(node);
         if (el && isSubtitleElement(el)) hasSubtitle = true;
       }
     }

@@ -101,4 +101,5 @@ DeepSeek 的 API Key 不从弹窗输入，而是读取扩展目录下的 `config
 - DeepSeek 引擎会消耗你账号的 token 额度；API Key 保存在本地 `config.json`，不会上传到任何第三方
 - 涉及敏感信息的页面（网银、内部系统等）建议关闭翻译开关
 - 仅支持以 DOM 元素渲染的字幕（YouTube、Bilibili、Video.js 等）；浏览器原生 `<video><track>` 字幕渲染在浏览器内部，扩展无法读取和翻译
+- 播放器控制栏与控件（video.js / Plyr / JW Player / YouTube 控件等）不翻译，避免替换播放器内部缓存的文本节点导致时间显示重复或告警
 - 首次安装后，已打开的页面需刷新一次才生效
