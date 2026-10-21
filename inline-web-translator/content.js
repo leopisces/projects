@@ -445,6 +445,7 @@
           body: JSON.stringify(body)
         });
       }).then(function (res) {
+        if (typeof res === 'string') return res;
         if (res.ok) {
           const ctype = res.headers && res.headers.get ? String(res.headers.get('content-type') || '') : '';
           if (streaming && ctype.indexOf('text/event-stream') !== -1 && res.body && res.body.getReader) {
