@@ -58,16 +58,16 @@ ppp-trans.ppp-sub-overlay {
   transform: translateX(-50%);
 }
 
-ppp-trans.ppp-sub-overlay:empty {
-  display: none;
-}
-
 html.ppp-hover-mode ppp-trans {
   display: none;
 }
 
 html.ppp-hover-mode ppp-trans.ppp-sub-overlay {
-  display: none;
+  display: block;
+}
+
+ppp-trans.ppp-sub-overlay:empty {
+  display: none !important;
 }
 
 ppp-trans.ppp-hover-tip {

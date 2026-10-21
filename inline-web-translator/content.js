@@ -885,20 +885,6 @@
     el.classList.add('notranslate', 'ppp-sub-overlay');
     if (!settings.enabled) el.classList.add('ppp-hidden');
     container.appendChild(el);
-    if (!container.__pppHoverBound) {
-      container.__pppHoverBound = true;
-      try {
-        container.addEventListener('mouseenter', function () {
-          if (!settings.hoverReveal || !settings.enabled) return;
-          const entry = subOverlays.get(container);
-          if (!entry || !entry.el || !entry.el.textContent.trim()) return;
-          const block = entry.block;
-          const rect = block && block.getBoundingClientRect ? block.getBoundingClientRect() : container.getBoundingClientRect();
-          showHoverTip(entry.el.textContent, rect);
-        });
-        container.addEventListener('mouseleave', function () { hideHoverTip(); });
-      } catch (e) { /* 忽略 */ }
-    }
     entry = { el: el, block: null, cueText: '', timer: null };
     subOverlays.set(container, entry);
     return entry;
