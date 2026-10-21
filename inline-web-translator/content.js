@@ -32,6 +32,22 @@
   const DEEPSEEK_MODEL = 'deepseek-flash';
   const DEEPSEEK_PROMPT = 'You are a translation engine. Translate every line of the user message into Simplified Chinese. Preserve the exact number of lines and their order. Output only the translated lines, one per line, without numbering, explanations, or markdown.';
   const SENT_RE = /[^.!?。！？]+[.!?。！？]+["'”’)\]]*\s*|[^.!?。！？]+$/g;
+  const SUB_DEBOUNCE_MS = 40;
+  const SUBTITLE_STRONG = [
+    '.ytp-caption-segment',
+    '.ytp-caption-window-container',
+    '.ytp-caption-window',
+    '.caption-window',
+    '.vjs-text-track-cue',
+    '.vjs-text-track-display',
+    '.bpx-player-subtitle-panel-text',
+    '.bilibili-player-video-subtitle',
+    '.jw-text-track-cue',
+    '.plyr__captions',
+    '.shaka-text-container',
+    '[data-purpose="captions"]'
+  ].join(',');
+  const SUBTITLE_WEAK = '[class*="subtitle" i],[class*="subtitles" i],[class*="caption" i]';
 
   const settings = { enabled: true, provider: 'google', blockGoogleWidget: true, skipChinesePages: true, fileConfig: null };
   const TARGET_LANG = 'zh-CN';
@@ -116,11 +132,16 @@
     return out;
   }
 
-  function fetchChunk(chunk, attempt) {
+  function fetchChunk(chunk, attempt, item) {
     return serial(function () {
       const now = Date.now();
       const wait = Math.max(0, lastRequestAt + requestGap() - now, cooldownUntil - now);
       return sleep(wait).then(function () {
+        if (isStaleItem(item)) {
+          const stale = new Error('stale');
+          stale.stale = true;
+          throw stale;
+        }
         lastRequestAt = Date.now();
         const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' +
           encodeURIComponent(TARGET_LANG) + '&dt=t&q=' + encodeURIComponent(chunk);
@@ -160,19 +181,23 @@
     return chunks;
   }
 
-  function requestSingle(text, attempt) {
+  function requestSingle(text, attempt, item) {
     const chunks = splitIntoChunks(text, MAX_CHUNK);
     let out = '';
     let index = 0;
     function next() {
       if (index >= chunks.length) return Promise.resolve(out);
       const chunk = chunks[index++];
-      return fetchChunk(chunk, attempt).then(function (t) {
+      return fetchChunk(chunk, attempt, item).then(function (t) {
         out += t;
         return next();
       });
     }
     return next();
+  }
+
+  function isStaleItem(item) {
+    return !!(item && item.el && !item.el.isConnected);
   }
 
   function splitLines(content) {
@@ -183,11 +208,16 @@
     }).filter(Boolean);
   }
 
-  function deepseekRequest(lines, attempt) {
+  function deepseekRequest(lines, attempt, item) {
     return serial(function () {
       const now = Date.now();
       const wait = Math.max(0, lastRequestAt + requestGap() - now, cooldownUntil - now);
       return sleep(wait).then(function () {
+        if (isStaleItem(item)) {
+          const stale = new Error('stale');
+          stale.stale = true;
+          throw stale;
+        }
         lastRequestAt = Date.now();
         return fetch(DEEPSEEK_URL, {
           method: 'POST',
@@ -229,13 +259,14 @@
   }
 
   function googleFallback(item) {
-    requestSingle(item.text, 0).then(function (t) {
+    requestSingle(item.text, 0, item).then(function (t) {
       if (!t || !t.trim()) {
         item.reject(new Error('空译文'));
         return;
       }
       item.resolve(t);
     }).catch(function (e) {
+      if (e && e.stale) { item.resolve(''); return; }
       item.reject(e);
     });
   }
@@ -247,7 +278,7 @@
   }
 
   function runDeepSeekSingle(item, attempt) {
-    deepseekRequest([item.text], attempt).then(function (content) {
+    deepseekRequest([item.text], attempt, item).then(function (content) {
       const lines = splitLines(content);
       if (!lines.length) {
         warnDeepSeekFailure(new Error('DeepSeek 返回空译文'));
@@ -256,6 +287,7 @@
       }
       item.resolve(lines.join(' '));
     }).catch(function (e) {
+      if (e && e.stale) { item.resolve(''); return; }
       if (e && e.retryable && attempt < MAX_RETRIES) {
         setTimeout(function () { runDeepSeekSingle(item, attempt + 1); }, backoff(attempt));
       } else {
@@ -303,13 +335,14 @@
   }
 
   function runSingle(item, attempt) {
-    requestSingle(item.text, attempt).then(function (t) {
+    requestSingle(item.text, attempt, item).then(function (t) {
       if (!t || !t.trim()) {
         item.reject(new Error('empty translation'));
         return;
       }
       item.resolve(t);
     }).catch(function (e) {
+      if (e && e.stale) { item.resolve(''); return; }
       if (e && e.retryable && attempt < MAX_RETRIES) {
         setTimeout(function () { runSingle(item, attempt + 1); }, backoff(attempt));
       } else {
@@ -319,6 +352,17 @@
   }
 
   function runBatch(items, attempt) {
+    const live = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.el && !it.el.isConnected) {
+        it.resolve('');
+        continue;
+      }
+      live.push(it);
+    }
+    if (!live.length) return;
+    items = live;
     if (!items.length) return;
     if (settings.provider === 'deepseek') {
       if (deepseekKey()) {
@@ -377,20 +421,30 @@
     runBatch(items, 0);
   }
 
-  function translateText(text) {
+  function translateText(text, opts) {
+    const fast = !!(opts && opts.fast);
     const key = settings.provider + '|' + text;
     if (memo.has(key)) return Promise.resolve(memo.get(key));
     if (inflight.has(key)) return inflight.get(key);
-    const cfg = batchConfig();
     const p = new Promise(function (resolve, reject) {
-      batchQueue.push({ text: text, key: key, resolve: resolve, reject: reject });
+      const item = { text: text, key: key, resolve: resolve, reject: reject, el: (opts && opts.el) || null };
+      if (fast) {
+        if (item.el && !item.el.isConnected) {
+          resolve('');
+          return;
+        }
+        runBatch([item], 0);
+        return;
+      }
+      const cfg = batchConfig();
+      batchQueue.push(item);
       if (batchQueue.length >= cfg.items) flushBatch();
       else if (!batchTimer) batchTimer = setTimeout(flushBatch, cfg.wait);
     });
     inflight.set(key, p);
     p.then(function (t) {
       inflight.delete(key);
-      memo.set(key, t);
+      if (t && t.trim()) memo.set(key, t);
       persistMemo();
     }).catch(function (e) {
       inflight.delete(key);
@@ -432,12 +486,28 @@
     return null;
   }
 
+  function isSubtitleElement(el) {
+    if (!el || el.nodeType !== 1 || !el.closest) return false;
+    if (el.closest(SUBTITLE_STRONG)) return true;
+    const weak = el.closest(SUBTITLE_WEAK);
+    if (!weak) return false;
+    let cur = weak;
+    for (let i = 0; i < 5 && cur && cur.nodeType === 1; i++) {
+      if (cur.tagName === 'VIDEO') return true;
+      try {
+        if (cur.querySelector && cur.querySelector('video')) return true;
+      } catch (e) { /* 忽略 */ }
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
   function isOwnNode(el) {
     if (!el || el.nodeType !== 1) return false;
     return el.tagName === SENT_TAG.toUpperCase() || el.tagName === TRANS_TAG.toUpperCase();
   }
 
-  function processBlock(block, nodes) {
+  function processBlock(block, nodes, fast) {
     if (!settings.enabled) return;
 
     let full = '';
@@ -500,12 +570,19 @@
       if (!spans.length) continue;
       const anchor = spans[spans.length - 1];
       if (!anchor.parentNode) continue;
+      let nxt = anchor.nextSibling;
+      while (nxt && nxt.nodeType === 1 && nxt.tagName === TRANS_TAG.toUpperCase()) {
+        const rm = nxt;
+        nxt = nxt.nextSibling;
+        if (rm.parentNode) rm.parentNode.removeChild(rm);
+      }
       const trans = document.createElement(TRANS_TAG);
       trans.setAttribute('translate', 'no');
       trans.classList.add('notranslate');
+      if (fast) trans.classList.add('ppp-sub');
       if (!settings.enabled) trans.classList.add('ppp-hidden');
       anchor.parentNode.insertBefore(trans, anchor.nextSibling);
-      translateText(sentences[k].text).then(function (t) {
+      translateText(sentences[k].text, fast ? { fast: true, el: trans } : null).then(function (t) {
         if (!t || !t.trim()) {
           if (trans.parentNode) trans.remove();
           return;
@@ -575,6 +652,10 @@
         block.setAttribute(SKIP_ATTR, '1');
         return;
       }
+      if (isSubtitleElement(block)) {
+        processBlock(block, nodes, true);
+        return;
+      }
       scheduleBlock(block, nodes);
     });
   }
@@ -626,8 +707,21 @@
 
   const observer = new MutationObserver(function (mutations) {
     if (!settings.enabled) return;
+    let hasSubtitle = false;
     for (let i = 0; i < mutations.length; i++) {
-      const added = mutations[i].addedNodes;
+      const m = mutations[i];
+      if (m.type === 'characterData') {
+        const target = m.target;
+        const parent = target && target.parentElement;
+        if (!parent || !target.nodeValue || !target.nodeValue.trim()) continue;
+        if (parent.closest(SENT_TAG + ',' + TRANS_TAG)) continue;
+        if (isSubtitleElement(parent)) {
+          pending.push(target);
+          hasSubtitle = true;
+        }
+        continue;
+      }
+      const added = m.addedNodes;
       for (let j = 0; j < added.length; j++) {
         const node = added[j];
         if (node.nodeType === 1) {
@@ -635,11 +729,13 @@
           if (node.closest && node.closest(SENT_TAG + ',' + TRANS_TAG)) continue;
         }
         pending.push(node);
+        const el = node.nodeType === 1 ? node : node.parentElement;
+        if (el && isSubtitleElement(el)) hasSubtitle = true;
       }
     }
     if (!pending.length) return;
     if (timer) clearTimeout(timer);
-    timer = setTimeout(flush, DEBOUNCE_MS);
+    timer = setTimeout(flush, hasSubtitle ? SUB_DEBOUNCE_MS : DEBOUNCE_MS);
   });
 
   function cleanupGoogleWidget() {
@@ -676,7 +772,7 @@
   }
 
   function activateCollect() {
-    try { observer.observe(document.body, { childList: true, subtree: true }); } catch (e) { /* 忽略 */ }
+    try { observer.observe(document.body, { childList: true, subtree: true, characterData: true }); } catch (e) { /* 忽略 */ }
     collect(document.body);
   }
 

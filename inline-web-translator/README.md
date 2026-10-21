@@ -9,6 +9,7 @@
 - 自动跳过中文内容与代码/脚本，不会把已中文的页面再翻一遍
 - 同句去重缓存，只翻译进入可视区域的段落，滚动时逐步加载
 - **攒批请求**：多句合并成一次接口调用（最多 8 句 / 1200 字符），凑满或等待 600ms 即发送，返回后按句拆回
+- **视频字幕实时翻译**：自动识别 YouTube / Bilibili / Video.js 等播放器的 DOM 字幕，字幕一出现立即单独翻译并显示在当前字幕下方，不攒批、不走视口排队，延迟约 40ms
 - 请求串行限速（间隔 500ms），遇到 429/503 自动指数退避重试（2.5s 起，最多 4 次）
 - 译文写入本地缓存（localStorage），刷新或再次访问同一页面不重复请求
 - 动态加载内容（无限滚动、SPA 切换）自动跟进翻译
@@ -84,6 +85,7 @@ DeepSeek 的 API Key 不从弹窗输入，而是读取扩展目录下的 `config
 - 译文按句子缓存在内存与 `localStorage`，相同句子跨页面复用
 - 原文按句子切分并包裹为自定义标签 `<ppp-sent>`，译文写入紧邻的 `<ppp-trans>`（`inline-block` 占满整行，自动换行到句子下方）
 - `MutationObserver` + 300ms 防抖处理动态新增内容
+- 通过常见播放器字幕选择器与「类名含 subtitle/caption 且祖先含 `<video>`」的通用规则识别字幕块；字幕块跳过 `IntersectionObserver` 与攒批，`MutationObserver` 对字幕变更只用 40ms 防抖并立即单条请求，占位译文已被播放器移除时不再发送请求
 - 页面级语言检测：`<html lang>` 以 `zh` 开头，或正文采样中汉字占字母总数 30% 以上，则判定为中文页面并整页跳过
 - `early.js` 在 `document_start` 注入：给 `html` 打上 `translate="no"` / `notranslate`，清除 `googtrans` Cookie，并持续移除 Google 翻译控件与横幅
 - 后台 Service Worker 通过 `declarativeNetRequest` 动态规则拦截 `translate_a/element.js` 与 `translate-pa.googleapis.com`
@@ -98,4 +100,5 @@ DeepSeek 的 API Key 不从弹窗输入，而是读取扩展目录下的 `config
 - 如果页面在本插件生效前已经被网站自带的翻译改过，刷新一次页面即可恢复
 - DeepSeek 引擎会消耗你账号的 token 额度；API Key 保存在本地 `config.json`，不会上传到任何第三方
 - 涉及敏感信息的页面（网银、内部系统等）建议关闭翻译开关
+- 仅支持以 DOM 元素渲染的字幕（YouTube、Bilibili、Video.js 等）；浏览器原生 `<video><track>` 字幕渲染在浏览器内部，扩展无法读取和翻译
 - 首次安装后，已打开的页面需刷新一次才生效
