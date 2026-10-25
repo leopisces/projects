@@ -11,7 +11,7 @@
     chrome.storage.local.get({ fileConfig: null }, function (local) {
       var cfg = local && local.fileConfig;
       var fileProvider = cfg && cfg.provider ? cfg.provider : '';
-      chrome.storage.sync.get(['enabled', 'provider', 'blockGoogleWidget', 'skipChinesePages', 'hoverReveal'], function (res) {
+      chrome.storage.sync.get({ enabled: true, provider: '', blockGoogleWidget: true, skipChinesePages: true, hoverReveal: true }, function (res) {
         toggle.checked = res.enabled !== false;
         var chosen = res.provider || fileProvider || 'google';
         provider.value = chosen === 'deepseek' || chosen === 'ark' ? chosen : 'google';

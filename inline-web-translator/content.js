@@ -55,7 +55,7 @@
   const PREFETCH_AHEAD_GOOGLE = 40;
   const PREFETCH_AHEAD_DEEPSEEK = 25;
 
-  const settings = { enabled: true, provider: 'google', blockGoogleWidget: true, skipChinesePages: true, hoverReveal: false, fileConfig: null };
+  const settings = { enabled: true, provider: 'google', blockGoogleWidget: true, skipChinesePages: true, hoverReveal: true, fileConfig: null };
   let chinesePageSkip = false;
   const TARGET_LANG = 'zh-CN';
   const memo = new Map();
@@ -1193,6 +1193,10 @@
       trans.setAttribute('translate', 'no');
       trans.classList.add('notranslate');
       if (!settings.enabled) trans.classList.add('ppp-hidden');
+      if (settings.hoverReveal) {
+        trans.classList.add('ppp-hover-hidden');
+        trans.style.display = 'none';
+      }
       anchor.parentNode.insertBefore(trans, anchor.nextSibling);
       translateText(sentences[k].text).then(function (t) {
         if (!t || !t.trim()) {
@@ -1403,6 +1407,16 @@
     try {
       document.documentElement.classList.toggle('ppp-hover-mode', !!settings.hoverReveal);
     } catch (e) { /* 忽略 */ }
+    // 直接作用于每个正文译文元素：!important 类 + 内联样式双保险，
+    // 确保悬停模式下行内译文必定隐藏；字幕悬浮层与悬停提示不受影响
+    const on = !!settings.hoverReveal;
+    const list = document.querySelectorAll(TRANS_TAG);
+    for (let i = 0; i < list.length; i++) {
+      const el = list[i];
+      if (el.classList.contains('ppp-sub-overlay') || el.classList.contains('ppp-hover-tip')) continue;
+      el.classList.toggle('ppp-hover-hidden', on);
+      el.style.display = on ? 'none' : '';
+    }
   }
 
   function transForSent(sent) {
@@ -1505,7 +1519,7 @@
 
     chrome.storage.local.get({ fileConfig: null }, function (local) {
       settings.fileConfig = (local && local.fileConfig) || null;
-      chrome.storage.sync.get({ enabled: true, provider: '', blockGoogleWidget: true, skipChinesePages: true, hoverReveal: false }, function (res) {
+      chrome.storage.sync.get({ enabled: true, provider: '', blockGoogleWidget: true, skipChinesePages: true, hoverReveal: true }, function (res) {
         settings.enabled = res.enabled !== false;
         const chosenProvider = res.provider || (settings.fileConfig && settings.fileConfig.provider) || 'google';
         settings.provider = chosenProvider === 'deepseek' || chosenProvider === 'ark' ? chosenProvider : 'google';
@@ -1531,6 +1545,15 @@
 
     window.addEventListener('pagehide', function () {
       flushStats();
+    });
+
+    // 页面显示/恢复（含 bfcache 回退）时重新同步悬停配置并应用，
+    // 保证进页面与弹窗开关状态一致（未配置时默认开启悬停显示译文）
+    window.addEventListener('pageshow', function () {
+      chrome.storage.sync.get({ hoverReveal: true }, function (res) {
+        settings.hoverReveal = res.hoverReveal === true;
+        applyHoverMode();
+      });
     });
 
     chrome.storage.onChanged.addListener(function (changes, area) {
