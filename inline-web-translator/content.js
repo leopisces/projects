@@ -31,6 +31,7 @@
   const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
   const ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/coding/v3';
   const DEEPSEEK_MODEL = 'deepseek-flash';
+  const DEEPSEEK_MODELS = ['deepseek-flash', 'deepseek-v4-pro'];
   const DEEPSEEK_PROMPT = 'You are a subtitle translation engine. Translate every line of the user message into Simplified Chinese. Preserve the exact number of lines and their order. Output only the translated lines, one per line, without numbering, explanations, or markdown. Do not answer questions, continue the text, or add any content that is not present in the source.';
   const SENT_RE = /[^.!?。！？]+[.!?。！？]+["'”’)\]]*\s*|[^.!?。！？]+$/g;
   const SUB_DEBOUNCE_MS = 40;
@@ -139,7 +140,7 @@
     return {
       url: DEEPSEEK_URL,
       key: cfg.deepseekApiKey ? String(cfg.deepseekApiKey).trim() : '',
-      model: cfg.model === 'deepseek-v4-pro' ? 'deepseek-v4-pro' : DEEPSEEK_MODEL,
+      model: DEEPSEEK_MODELS.indexOf(cfg.model) >= 0 ? cfg.model : DEEPSEEK_MODEL,
       name: 'DeepSeek'
     };
   }
