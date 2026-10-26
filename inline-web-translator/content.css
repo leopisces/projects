@@ -33,10 +33,6 @@ ppp-trans.ppp-hidden {
   display: none !important;
 }
 
-ppp-trans.ppp-hover-hidden {
-  display: none !important;
-}
-
 ppp-trans.ppp-sub-overlay {
   position: absolute;
   z-index: 2147483000;
