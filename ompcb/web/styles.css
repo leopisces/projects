@@ -1,0 +1,663 @@
+/* OMPCB — dense engineering-tool aesthetic.
+   Neutral gray scale, one restrained accent, tabular numerics, CJK fallback.
+   Toolbar + stats fixed; only the table body scrolls. */
+
+:root {
+  /* Neutral gray scale */
+  --c-bg:        #f5f6f8;
+  --c-surface:   #ffffff;
+  --c-border:    #e4e7ec;
+  --c-border-2:  #d0d5dd;
+  --c-text:      #1f2937;
+  --c-text-2:    #4b5563;
+  --c-text-3:    #6b7280;
+  --c-muted:     #9aa3af;
+
+  /* Recessed surfaces: read-only panels, summary cells, inline code chips.
+     Two steps only — deeper than --c-surface, lighter than --c-border. */
+  --c-sunken:    #f9fafb;   /* panel / summary cell background */
+  --c-sunken-2:  #f3f4f6;   /* chip / code / neutral badge background */
+
+  /* Single accent (used sparingly) */
+  --c-accent:        #2563eb;
+  --c-accent-soft:   #eff4ff;
+  --c-accent-border: #c7d7fe;
+
+  /* Semantic status trio. Warn = shortage (amber), danger = hard deficit (red),
+     success = satisfied (green). Each has a soft tint for fills. */
+  --c-warn:          #b45309;   /* shortage */
+  --c-warn-soft:     #fff7e6;   /* shortage row tint */
+  --c-warn-border:   #f3d9a4;
+  --c-danger:        #b42318;   /* deficit figures */
+  --c-danger-soft:   #fef3f2;
+  --c-success:       #067647;   /* satisfied figures, stock-in deltas */
+  --c-success-soft:  #ecfdf3;
+
+  /* Manual-binding provenance (purple). Deliberately NOT amber: amber already
+     means "shortage" everywhere in this app (shortage rows, shortage figures),
+     so amber text in the four bound columns would read as "these cells are
+     also reporting a shortage". Purple is unused elsewhere — zero ambiguity. */
+  --c-bind:        #6d28d9;
+  --c-bind-soft:   #f5f3ff;
+  --c-bind-border: #ddd6fe;
+
+  /* Type — one ladder, no ad-hoc sizes.
+     micro: badges/units · meta: hints/labels · body: default
+     table: grid cells · lg: stat values · xl: hero figures in dialogs */
+  --fs-micro: 10px;
+  --fs-meta:  11px;
+  --fs-sm:    12px;
+  --fs-body:  13px;
+  --fs-table: 12.5px;
+  --fs-lg:    15px;
+  --fs-xl:    18px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei",
+               "PingFang SC", "Hiragino Sans GB", "Source Han Sans CN",
+               "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Mono", "Consolas",
+               "Roboto Mono", "Microsoft YaHei", monospace;
+
+  /* Element Plus alignment: make EP's own semantics resolve to our palette
+     so el-tag/el-button/el-alert stop shipping their stock colors. */
+  --el-color-primary:  #2563eb;
+  --el-color-success:  #067647;
+  --el-color-warning:  #b45309;
+  --el-color-danger:   #b42318;
+  --el-border-radius-base: 4px;
+  --el-font-size-base: 13px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--c-text);
+  background: var(--c-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ----- App shell: full-height flex column ---------------------------------- */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  height: 44px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  flex: 0 0 auto;
+}
+.app-title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--c-text);
+}
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.app-brand .app-logo {
+  color: var(--c-accent);
+  flex: 0 0 auto;
+  display: block;
+}
+/* Wordmark: slight tracking so the 5 caps read as a mark, not a word */
+.app-brand .app-title {
+  letter-spacing: 0.6px;
+  font-size: 14px;
+}
+/* Right-hand context line: secondary by design — it is a running count,
+   not a title. Previously styled as a peer of the brand, which flattened
+   the hierarchy; it is now demoted and given tabular digits so the number
+   does not jitter as it updates. */
+.app-header .app-title.sub {
+  margin-left: 0;
+  font-weight: 400;
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Toolbar */
+.app-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  flex: 0 0 auto;
+}
+.app-toolbar .toolbar-spacer { flex: 1; }
+/* Trailing action cluster sits tighter than the filter controls it follows,
+   so "filters" and "actions" read as two groups rather than one long row. */
+.app-toolbar .el-button + .el-button { margin-left: 0; }
+
+/* Stats strip */
+.stats-strip {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 0 3px 0;   /* room for the ratio bar so it cannot clip a descender */
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  flex: 0 0 auto;
+}
+.stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 16px;
+  border-right: 1px solid var(--c-border);
+  min-width: 0;
+}
+.stat:last-child { border-right: none; }
+.stat .stat-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-meta);
+  color: var(--c-text-3);
+  letter-spacing: 0.3px;
+  text-transform: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 图标继承 stat-label 的灰，警示态下会跟着变橙 */
+.stat .stat-icon {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+.stat .stat-value {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  /* Figures are the payload of this strip — give them the mono face so
+     columns of digits line up across cells and don't wobble on refresh. */
+  font-family: var(--font-mono);
+  letter-spacing: -0.2px;
+  line-height: 1.15;
+}
+/* Trailing unit ("条" / "种") rides at label weight so the digit stays the
+   focal point instead of competing with its own suffix. */
+.stat .stat-unit {
+  margin-left: 3px;
+  font-size: var(--fs-meta);
+  font-weight: 400;
+  font-family: var(--font-sans);
+  color: var(--c-text-3);
+  letter-spacing: 0;
+}
+/* A zero here means "nothing to worry about" — de-emphasize so a screen of
+   zeros stays quiet and a real figure pops. */
+.stat.is-muted .stat-value,
+.stat .stat-value.is-zero { color: var(--c-muted); font-weight: 500; }
+.stat.is-warn .stat-value { color: var(--c-warn); }
+.stat.is-warn .stat-label { color: var(--c-warn); }
+.stat.is-warn { background: var(--c-warn-soft); }
+/* Warn cells earn a top rule in their own hue — the tint alone is faint
+   against white at this cell height. */
+.stat.is-warn { box-shadow: inset 0 2px 0 var(--c-warn-border); }
+
+/* 数值 + 迷你分布图并排，图占满剩余宽度 */
+.stat .stat-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+.stat .stat-spark {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 110px;
+  color: var(--c-border-2);
+  display: block;
+}
+
+/* 库存健康度比例条：绝对定位贴在整条底部，不参与高度计算 */
+.stats-ratio {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  display: flex;
+  background: var(--c-border);
+  pointer-events: none;
+}
+.stats-ratio > * { transition: width 0.24s ease; }
+.stats-ratio-in   { background: var(--c-success); }
+.stats-ratio-zero { background: var(--c-warn); }
+/* 中性段（BOM 页的「未匹配」）：不报警，只是还没接上 */
+.stats-ratio-idle { background: var(--c-border-2); }
+
+/* Table region — only this scrolls */
+.app-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px 12px 0 12px;
+  background: var(--c-bg);
+  display: flex;
+  flex-direction: column;
+}
+.app-table .table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* 固定列投影，避免与最后一列文字视觉粘连 */
+.app-table .el-table__fixed-right {
+  box-shadow: -4px 0 8px -4px rgba(16, 24, 40, 0.12);
+}
+
+/* ----- Element Plus table overrides ---------------------------------------- */
+.app-table .el-table {
+  --el-table-border-color: var(--c-border);
+  --el-table-header-bg-color: #f7f8fa;
+  --el-table-header-text-color: var(--c-text-2);
+  --el-table-row-hover-bg-color: #f5f7fa;
+  font-size: var(--fs-table);
+}
+.app-table .el-table th.el-table__cell {
+  font-weight: 600;
+  padding: 0;
+  height: 32px;
+  background: #f7f8fa;
+  /* Header/body separation came only from a 1px hairline shared with every
+     row rule, so the header floated. A darker bottom rule anchors it. */
+  border-bottom: 1px solid var(--c-border-2);
+  letter-spacing: 0.2px;
+}
+.app-table .el-table td.el-table__cell {
+  padding: 0;
+  height: 30px;
+}
+.app-table .el-table .cell {
+  padding-left: 10px;
+  padding-right: 10px;
+  line-height: 1.45;
+}
+/* Zebra banding is off; at 30px rows a hairline per row is enough and
+   keeps the shortage/unmatched row tints legible. */
+.app-table .el-table__row:hover td.el-table__cell { transition: background 0.1s; }
+
+/* 固定列投影，避免与最后一列文字视觉粘连 */
+.app-table .el-table__fixed-right {
+  box-shadow: -4px 0 8px -4px rgba(16, 24, 40, 0.12);
+}
+
+/* Footer (pagination) */
+.app-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 7px 12px;
+  background: var(--c-bg);
+  border-top: 1px solid var(--c-border);
+  flex: 0 0 auto;
+}
+.app-footer .el-pagination {
+  --el-pagination-font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Numeric columns: align digits */
+.col-num,
+.col-num .cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  font-family: var(--font-mono);
+}
+/* Numeric headers must sit over their own digits, not over the next column */
+.app-table .el-table th.col-num .cell { text-align: right; }
+.col-seq .cell {
+  color: var(--c-text-3);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Long-text columns: ellipsis + tooltip.
+   注意：不要用 max-width:0 —— 那会把所有文本列压到几乎没有宽度，
+   导致字段看不全。这里只做单行省略，宽度交给 min-width + 横向滚动。 */
+.col-truncate .cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Part numbers are scanned character-by-character and compared against a
+   reel label — mono makes transposed digits visible. */
+.col-pn .cell {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+/* Shortage row highlight: soft warning tint, not screaming red */
+.app-table .el-table__row.row-shortage td.el-table__cell {
+  background: var(--c-warn-soft) !important;
+}
+.app-table .el-table__row.row-shortage:hover td.el-table__cell {
+  background: #fdedd3 !important;
+}
+
+/* 未匹配到库存的 BOM 行：淡灰，与缺料的淡黄区分开 */
+.app-table .el-table__row.row-unmatched td.el-table__cell {
+  background: #fafafa !important;
+  color: var(--c-text-3);
+}
+.app-table .el-table__row.row-unmatched:hover td.el-table__cell {
+  background: var(--c-sunken-2) !important;
+}
+
+/* 来自库存台账的列：左侧细线标示"这几列不是 BOM 自己的数据" */
+.app-table .el-table td.col-from-inventory,
+.app-table .el-table th.col-from-inventory {
+  background-image: linear-gradient(to right, var(--c-accent-soft) 0 2px, transparent 2px);
+}
+
+/* 手动绑定过的行，那四列（制造商料号/制造商/供应商/供应商料号）显示的是所绑定
+   库存记录的值而非 BOM 导入值 —— 用紫色字明确区分「这格不是原始数据」。
+   刻意不用橙色：橙色在本表里已专指缺料（缺料行橙底、缺料数字橙字），
+   四列再用橙字会在缺料行上被读成"这几格也在报缺料"。紫色表内未用过，无歧义。
+   逐格标记（cell-class-name）而非整列：同一列里绑定与未绑定的行混在一起。 */
+.app-table .el-table td.col-bound .cell {
+  color: var(--c-bind);
+}
+
+/* 数量 / 库存 / 缺料 三列是对比组，给一点底色让它们成组 */
+.app-table .el-table td.col-compare,
+.app-table .el-table th.col-compare {
+  background-color: #fcfcfd;
+}
+
+/* Status tag spacing */
+.status-tag { font-weight: 500; }
+
+/* Action buttons in 操作 column.
+   EP link-buttons carry their own inline padding; collapse it and use a
+   real gap so a 5-action cell stays scannable instead of running together. */
+.op-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+.op-cell .el-button + .el-button { margin-left: 0; }
+.op-cell .el-button.is-link {
+  padding: 0;
+  height: auto;
+  font-size: var(--fs-sm);
+}
+
+/* Form dialog — slightly tighter for the dense form */
+.material-form .el-form-item { margin-bottom: 12px; }
+.material-form .el-form-item__label {
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  padding-right: 10px;
+}
+/* Last row sits flush against the footer rule instead of leaving a gap
+   that reads as a missing field. */
+.material-form .el-form-item:last-child { margin-bottom: 0; }
+
+/* Bulk paste textarea */
+.bulk-paste-textarea textarea {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+/* Empty state — center it */
+.app-table .el-empty { padding: 32px 0; }
+
+/* ----- Shared primitives ----------------------------------------------------
+   Dialogs and drawers kept re-inventing the same three boxes: a target banner,
+   a recessed read-only panel, and a summary cell strip. They are defined once
+   here so every surface shares one visual language. */
+
+/* Recessed read-only panel (linked-inventory block, move preview, ...) */
+.ui-panel {
+  padding: 10px 12px;
+  background: var(--c-sunken);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+}
+
+/* Target banner: "which record am I acting on" strip at the top of a dialog.
+   Accent bar on the left ties it to the row the user clicked. */
+.ui-target {
+  padding: 8px 12px;
+  background: var(--c-sunken);
+  border: 1px solid var(--c-border);
+  border-left: 2px solid var(--c-accent);
+  border-radius: 3px;
+}
+.ui-target-name {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--c-text);
+  line-height: 1.4;
+}
+.ui-target-meta {
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Summary cell strip (issue result, logs summary) — mirrors .stats-strip
+   so an in-dialog summary reads the same as the page-level one. */
+.ui-sumstrip {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--c-surface);
+}
+.ui-sumcell {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  background: var(--c-sunken);
+  border-right: 1px solid var(--c-border);
+}
+.ui-sumcell:last-child { border-right: none; }
+.ui-sumcell .ui-sumlabel {
+  font-size: var(--fs-meta);
+  color: var(--c-text-3);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.ui-sumcell .ui-sumvalue {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.ui-sumcell.is-warn { background: var(--c-warn-soft); }
+.ui-sumcell.is-warn .ui-sumlabel,
+.ui-sumcell.is-warn .ui-sumvalue { color: var(--c-warn); }
+
+/* Semantic figure colors — one definition, used by tables, dialogs, drawers */
+.is-ok    { color: var(--c-success); }
+.is-short { color: var(--c-danger); }
+
+/* Delta chips: +N / -N / 0 in stock-movement contexts */
+.delta-in,
+.delta-out,
+.delta-flat {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.delta-in   { color: var(--c-success); }
+.delta-out  { color: var(--c-warn); }
+.delta-flat { color: var(--c-text-3); }
+
+/* Muted secondary text inside tables/drawers */
+.muted {
+  color: var(--c-muted);
+  font-size: var(--fs-sm);
+}
+
+/* Inline hint line under a form field or beneath a heading */
+.ui-hint {
+  font-size: var(--fs-meta);
+  color: var(--c-text-3);
+  line-height: 1.5;
+}
+
+/* ----- Element Plus surface refinements -------------------------------------
+   EP ships generous consumer-grade padding and a heavy dialog header. Tighten
+   both so overlays match the density of the pages behind them. */
+.el-dialog {
+  border-radius: 6px;
+  box-shadow: 0 12px 32px -8px rgba(16, 24, 40, 0.18),
+              0 0 0 1px var(--c-border);
+}
+.el-dialog__header {
+  padding: 12px 16px;
+  margin-right: 0;
+  border-bottom: 1px solid var(--c-border);
+}
+.el-dialog__title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--c-text);
+}
+.el-dialog__body { padding: 14px 16px; }
+.el-dialog__footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--c-border);
+}
+.el-dialog__headerbtn { top: 10px; right: 12px; }
+
+.el-drawer__header {
+  padding: 12px 16px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--c-border);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--c-text);
+}
+.el-drawer__body { padding: 12px 16px; }
+.el-drawer__footer { padding: 10px 16px; border-top: 1px solid var(--c-border); }
+
+/* Tags: EP's default is a pill with heavy tint. Flatten to a compact chip. */
+.el-tag {
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.el-tag--small { height: 20px; line-height: 18px; padding: 0 6px; }
+
+/* Tooltips: EP default is large; match the dense body copy */
+.el-popper.is-dark { font-size: var(--fs-sm); line-height: 1.5; max-width: 320px; }
+
+/* ----- Tabs: 两套台账切换 ---------------------------------------------------
+   el-tabs 需要参与 app-shell 的 flex 高度分配，且只让面板内部的表格滚动，
+   所以 tabs / content / pane / panel-body 每一层都要 min-height:0 打断
+   flex 子项的默认 auto 最小高度，否则表格会把整页撑高。 */
+.app-tabs {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-surface);
+}
+.app-tabs > .el-tabs__header {
+  margin: 0;
+  padding: 0 16px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--c-border);
+}
+.app-tabs > .el-tabs__header .el-tabs__nav-wrap::after { display: none; }
+.app-tabs > .el-tabs__header .el-tabs__item {
+  height: 34px;
+  line-height: 34px;
+  padding: 0 14px;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  color: var(--c-text-3);
+}
+.app-tabs > .el-tabs__header .el-tabs__item.is-active { color: var(--c-text); font-weight: 600; }
+.app-tabs > .el-tabs__header .el-tabs__item:hover { color: var(--c-text-2); }
+/* EP's active bar is 2px and sits below the header rule; pull it onto the
+   rule so the tab reads as physically attached to its panel. */
+.app-tabs > .el-tabs__header .el-tabs__active-bar {
+  height: 2px;
+  bottom: -1px;
+  background: var(--c-accent);
+}
+.app-tabs > .el-tabs__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.app-tabs > .el-tabs__content > .el-tab-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 每个 Tab 面板内部沿用原来的"工具栏 + 汇总 + 表格 + 分页"竖向布局 */
+.panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Responsive nudge.
+   At <=1280 the BOM toolbar wraps to a second line; reclaim the vertical
+   space from the chrome so the table keeps as many rows as possible. */
+@media (max-width: 1280px) {
+  .stat { padding: 8px 12px; }
+  .app-toolbar { padding: 7px 12px; gap: 6px; }
+}
+@media (max-width: 900px) {
+  .stat { padding: 8px 12px; }
+  .stat .stat-value { font-size: var(--fs-lg); }
+  .stat .stat-spark { display: none; }
+  .app-header { padding: 0 12px; }
+  .app-toolbar { padding: 7px 12px; }
+  .app-tabs > .el-tabs__header { padding: 0 12px; }
+  .app-table { padding: 6px 8px 0 8px; }
+}

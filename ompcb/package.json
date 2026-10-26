@@ -1,0 +1,40 @@
+{
+  "name": "ompcb",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PCB 打样物料管理 - BOM 清单与库存台账按制造商料号自动关联",
+  "license": "MIT",
+  "author": "Leopisces",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leopisces/ompcb.git"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "node --watch server/server.js",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "cross-env NODE_ENV=production node server/server.js",
+    "seed": "node server/db/seed.js --force",
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:watch": "node --test --watch \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^17.4.2",
+    "element-plus": "^2.9.5",
+    "express": "^4.21.2",
+    "vue": "^3.5.13",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "vite": "^6.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

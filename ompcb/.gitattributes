@@ -1,0 +1,56 @@
+# 换行符锁定
+#
+# 起因：core.autocrlf=true 只按平台猜，跨机器 clone 时不保证。
+# 而这个项目里有两类文件对换行符是硬性要求，猜错就直接坏掉：
+#
+#   .bat  必须 CRLF —— CMD 用 LF 会认错行边界，把注释行当命令执行
+#   .ps1  必须 CRLF —— 配合 UTF-8 BOM，PS 5.1 才能正确解析中文
+#
+# 所以显式声明，不依赖 autocrlf 的平台推断。
+
+# 默认：仓库内统一存 LF，检出时按下方规则决定工作区换行
+* text=auto eol=lf
+
+# ---- Windows 脚本：工作区必须 CRLF ----
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+
+# ---- 源码 / 配置：统一 LF ----
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.vue  text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sh   text eol=lf
+
+# ---- 数据文件 ----
+# seed.tsv 走 LF：seed.js 里已有 replace(/\r/g,'') 兜底，两种换行都能解析，
+# 但统一 LF 能避免 Excel 另存后整个文件显示为一行改动。
+*.tsv  text eol=lf
+*.sql  text eol=lf
+
+# ---- 二进制：禁止任何换行转换，否则文件会被损坏 ----
+*.db      binary
+*.sqlite  binary
+*.sqlite3 text -diff
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.woff    binary
+*.woff2   binary
+*.ttf     binary
+*.eot     binary
+
+# ---- 打包/差异忽略 ----
+# 这些不需要出现在 GitHub 的语言统计和 PR diff 里
+package-lock.json linguist-generated=true -diff
+dist/**           linguist-generated=true

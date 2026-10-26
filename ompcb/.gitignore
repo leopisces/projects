@@ -1,0 +1,76 @@
+# ---- 依赖 ----
+node_modules/
+.pnpm-store/
+jspm_packages/
+
+# ---- 构建产物 ----
+dist/
+dist-ssr/
+build/
+.vite/
+*.local
+
+# ---- SQLite 运行时数据库 ----
+# 数据库由 server/db/index.js 首次启动时自动建库 + 导入 server/db/seed.tsv 种子数据，
+# 属于本地运行时产物，不入库。注意 schema 启用了 WAL，需连同 -wal/-shm 一起忽略
+# —— 那两个是瞬时缓存，每次启停服务都会变化，入库只会让每次提交都带无意义的二进制改动。
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# 注意：server/db/seed.tsv 与 server/db/schema.sql 是项目源码的一部分，必须保持被跟踪，
+# 不要在此处添加 *.tsv / *.sql 之类的通配忽略规则。
+
+# ---- 日志 ----
+logs/
+*.log
+*.err
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- 环境变量 / 本地配置 ----
+.env
+.env.*
+!.env.example
+
+# ---- 编辑器 / IDE ----
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ---- 操作系统 ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# ---- 临时文件 ----
+*.tmp
+*.temp
+.cache/
+coverage/
+
+# ---- 编码助手运行时状态 ----
+# opencode 的会话续跑状态，属于本地工具产物
+.omo/
+
+# 本地临时产物：截图、playwright 输出等，不入库
+temp/
+.playwright-mcp/

@@ -1,12 +1,16 @@
 # Projects
 
-个人项目仓库。当前主要项目是一个 Chrome 扩展：**Inline Web Translator** —— 把网页正文与视频字幕逐句翻译成简体中文，支持 Google、DeepSeek、火山方舟三种引擎。
+个人项目仓库，目前包含两个项目：
+
+- **Inline Web Translator**：Chrome 扩展，把网页正文与视频字幕逐句翻译成简体中文，支持 Google、DeepSeek、火山方舟三种引擎。
+- **OMPCB**：PCB 打样物料管理工具，BOM 清单与库存台账按制造商料号自动关联。
 
 ## 项目列表
 
-| 项目 | 说明 | 详细文档 |
-|------|------|----------|
-| [inline-web-translator](./inline-web-translator/) | Chrome Manifest V3 扩展：网页正文 + 视频字幕翻译 | [扩展 README](./inline-web-translator/README.md) |
+| 项目 | 说明 | 技术栈 | 详细文档 |
+|------|------|--------|----------|
+| [inline-web-translator](./inline-web-translator/) | Chrome Manifest V3 扩展：网页正文 + 视频字幕翻译 | 原生 JS/CSS，无构建 | [扩展 README](./inline-web-translator/README.md) |
+| [ompcb](./ompcb/) | PCB 打样物料管理：BOM 清单 + 库存台账 | Vue 3 + Element Plus + Vite 6 / Express 4 + SQLite | [项目 README](./ompcb/README.md) |
 
 ## 目录结构
 
@@ -22,6 +26,13 @@ projects/
 │   ├── manifest.json          # MV3 配置与版本号
 │   ├── config.json.simple     # 空 Key 配置模板（可提交）
 │   └── icons/
+├── ompcb/                     # PCB 物料管理（Node ≥ 20）
+│   ├── web/                   # Vue 3 前端源码
+│   ├── server/                # Express API、SQLite、schema.sql / seed.tsv
+│   ├── test/                  # node --test 测试
+│   ├── data/                  # 运行时 SQLite 数据库（gitignore，自动建库）
+│   ├── scripts/               # 辅助脚本
+│   └── package.json
 ├── .gitignore                 # 排除 config.json、dist/、.omo/
 └── README.md
 ```
