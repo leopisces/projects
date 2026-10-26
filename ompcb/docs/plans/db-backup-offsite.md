@@ -49,3 +49,11 @@
 - `npm run backup`：三个目录出现 `ompcb-YYYYMMDD-HHmmss.db`，`quick_check = ok`。
 - `npm run backup:status`：三行输出，数字与 `dir` 实际一致。
 - 重启计划任务 `OMPCB`：启动日志出现备份、`:4000` 健康检查 ok。
+
+## 实现偏离记录（同提交更新）
+
+1. `OMPCB_BACKUP_MIRRORS=none` 可显式关闭异地副本 —— 计划外补充，用于"只想本地备份"的回退路径，
+   `resolveMirrors` 已覆盖；spec R6 的可配置语义不变。
+2. 镜像 label 从 `盘符\目录名` 改为**完整路径**：`D:\ompcb-backup` 与 `D:\BaiduSyncdisk\ompcb-backup`
+   旧口径下都显示成 `D:\ompcb-backup`，状态输出无法区分。
+3. 新增 `listBackups` / `formatStatus` 两个导出（原计划只写 `--status` CLI），便于单测断言状态输出。

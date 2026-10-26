@@ -29,6 +29,7 @@ PCB 打样物料管理工具：BOM 清单 + 库存台账，按制造商料号（
 - `npm start` — 生产模式，Express 托管 dist/（单进程单端口 :4000）
 - `npm run seed` — **破坏性**：清空 materials 重导入种子数据，慎用
 - `npm run backup` — 生成一份一致性快照到 `data/backups/`（SQLite 在线备份 API，自动合并 WAL；保留最近 14 份）
+- `npm run backup:status` — 查看各目标最近备份时间 / 份数 / 占用 / 同步盘冲突副本
 - 备份计划任务：`scripts\install-backup-task.ps1`（每日 12:00）；`-Uninstall` 卸载
 - 发布：`scripts\deploy-quick.bat`（日常）/ `scripts\deploy.bat`（改过 package.json 时）
 
@@ -48,7 +49,8 @@ PCB 打样物料管理工具：BOM 清单 + 库存台账，按制造商料号（
 - 换机器不能拷 `node_modules/`（原生模块）；install 前先停服务（锁 .node 文件）
 - 数据库 `data/ompcb.db` 不入库（WAL）；`schema.sql` 与 `seed.tsv` 是源码**必须被跟踪**
 - 备份**不能直接拷 .db**：WAL 模式下真实数据在 `-wal` 里，必须用 `scripts/backup-db.mjs`（在线备份 API）
-- `data/backups/` 每次服务启动前备一份（`serve.ps1`），另有每日计划任务 `OMPCB-Backup`
+- 备份默认**三写**：`data/backups/`（14）+ `D:\ompcb-backup`（30）+ `D:\BaiduSyncdisk\ompcb-backup`（30）；`OMPCB_BACKUP_MIRRORS` 改异地目标（`none` 关闭）/ `OMPCB_BACKUP_KEEP` 改本地份数
+- 备份失败隔离：任一目标失败或盘未挂载只告警，**本地成功即整体成功**；`serve.ps1` 启动前备一份，另有每日任务 `OMPCB-Backup`
 - 发布必须重新 build（serve.ps1 只在 dist 缺失时才构建）
 
 ## 4. 架构速览

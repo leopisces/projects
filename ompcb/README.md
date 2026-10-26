@@ -38,6 +38,14 @@ npm run dev        # 同时起 API(4000) 与前端(5173)
 | `npm test` | 跑测试（临时库，不碰真实数据） |
 | `npm run seed` | **破坏性**：清空 materials 重新导入种子数据 |
 | `npm run backup` | 生成一致性快照到 `data/backups/`（合并 WAL，保留最近 14 份） |
+| `npm run backup:status` | 查看各备份目标：最近一次备份时间 / 份数 / 占用 |
+
+## 备份与恢复（短版）
+
+- 备份是**三写**：`data/backups/`（保留 14）+ `D:\ompcb-backup`（30）+ `D:\BaiduSyncdisk\ompcb-backup`（30）。三处同一文件名、同一内容。
+- 服务启动前 `serve.ps1` 会自动备一份；另有每日 12:00 计划任务 `OMPCB-Backup`。任一目标失败只告警，不影响服务和其余目标。
+- **恢复**：`Stop-ScheduledTask -TaskName OMPCB` → 拿 `data\backups\` 最新一个 `.db` 覆盖 `data\ompcb.db` → 删掉残留 `data\ompcb.db-wal` 与 `-shm` → `Start-ScheduledTask -TaskName OMPCB` → 看 `/api/health`。
+- 要改目标/份数：设 `OMPCB_BACKUP_MIRRORS="路径=份数;路径=份数"`（设成 `none` 可关闭异地副本），`OMPCB_BACKUP_KEEP` 改本地份数。
 
 ## 部署（Windows 内网自用）
 
@@ -392,7 +400,7 @@ inventory_log   出入库流水
 - `migrate-inventory.js --force` 会清空库存台账和全部流水后从 BOM 重建，慎用
 - `data/ompcb.db` 已 gitignore，是本地运行时产物
 - 用了 WAL 模式，`.db-wal` / `.db-shm` 一并忽略
-- **备份不能直接拷 `data/ompcb.db`**：WAL 模式下真实数据大量在 `-wal` 里，单拷会得到落后/残缺快照。用 `npm run backup`（SQLite 在线备份 API，产物是 WAL 已合并的单文件，落在 `data/backups/`，保留最近 14 份）；每日 12:00 还有计划任务 `OMPCB-Backup`，服务启动前 `serve.ps1` 也会兜底备一份。回滚 = 停服务 → 用备份覆盖 `data/ompcb.db` 并删掉残留 `-wal`/`-shm` → 起服务。
+- **备份不能直接拷 `data/ompcb.db`**：WAL 模式下真实数据大量在 `-wal` 里，单拷会得到落后/残缺快照。用 `npm run backup`（SQLite 在线备份 API，产物是 WAL 已合并的单文件）。默认**三写**：`data/backups/`（14 份）+ `D:\ompcb-backup`（30）+ `D:\BaiduSyncdisk\ompcb-backup`（30），任一目标失败只告警；`OMPCB_BACKUP_MIRRORS` 可改异地目标（`none` 关闭），`OMPCB_BACKUP_KEEP` 改本地份数。回滚 = 停服务 → 用备份覆盖 `data/ompcb.db` 并删掉残留 `-wal`/`-shm` → 起服务。
 - 没有用户系统和权限，单人本地使用
 - **`mfr_pn` 没有唯一约束**（只有 `supplier_pn` 有）。两条不同供应商、相同制造商料号的库存记录，在 `LEFT JOIN inventory ON m.mfr_pn = i.mfr_pn` 下会让 BOM 行重复。因此"已焊接量"必须先在子查询里 `GROUP BY material_id` 预聚合完再 LEFT JOIN，不能把 `inventory_log` 直接塞进现有联接，否则行数翻倍、数字也翻倍。
 - **迁移之前的历史出库流水没有 `material_id`**，不会计入行级"已焊接"统计（产品级汇总仍包含它们）。遵循项目既有的"不做猜测性回填"惯例。
