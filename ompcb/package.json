@@ -16,6 +16,7 @@
     "dev:web": "vite",
     "build": "vite build",
     "start": "cross-env NODE_ENV=production node server/server.js",
+    "backup": "node scripts/backup-db.mjs",
     "seed": "node server/db/seed.js --force",
     "test": "node --test \"test/**/*.test.js\"",
     "test:watch": "node --test --watch \"test/**/*.test.js\""

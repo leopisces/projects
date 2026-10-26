@@ -28,6 +28,8 @@ PCB 打样物料管理工具：BOM 清单 + 库存台账，按制造商料号（
 - `npm run build` — vite build → dist/
 - `npm start` — 生产模式，Express 托管 dist/（单进程单端口 :4000）
 - `npm run seed` — **破坏性**：清空 materials 重导入种子数据，慎用
+- `npm run backup` — 生成一份一致性快照到 `data/backups/`（SQLite 在线备份 API，自动合并 WAL；保留最近 14 份）
+- 备份计划任务：`scripts\install-backup-task.ps1`（每日 12:00）；`-Uninstall` 卸载
 - 发布：`scripts\deploy-quick.bat`（日常）/ `scripts\deploy.bat`（改过 package.json 时）
 
 ## 3. 关键约定（完整版在 docs/开发规范.md 与 CLAUDE.md）
@@ -45,6 +47,8 @@ PCB 打样物料管理工具：BOM 清单 + 库存台账，按制造商料号（
 - `.bat` 无 BOM + CRLF；`.ps1` 带 BOM 的 UTF-8；`.bat` 注释用 ASCII
 - 换机器不能拷 `node_modules/`（原生模块）；install 前先停服务（锁 .node 文件）
 - 数据库 `data/ompcb.db` 不入库（WAL）；`schema.sql` 与 `seed.tsv` 是源码**必须被跟踪**
+- 备份**不能直接拷 .db**：WAL 模式下真实数据在 `-wal` 里，必须用 `scripts/backup-db.mjs`（在线备份 API）
+- `data/backups/` 每次服务启动前备一份（`serve.ps1`），另有每日计划任务 `OMPCB-Backup`
 - 发布必须重新 build（serve.ps1 只在 dist 缺失时才构建）
 
 ## 4. 架构速览
