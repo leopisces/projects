@@ -13,6 +13,8 @@ PCB 打样物料管理工具：BOM 清单 + 库存台账，按制造商料号（
 - Build: `npm run build`（vite build → dist/）
 - Prod: `npm start`（Express 托管 dist/，单进程单端口 :4000）
 - Seed: `npm run seed`（**破坏性**：清空 materials 重导入种子数据，慎用）
+- 备份: `npm run backup`（SQLite 在线备份 API，WAL 已合并的单文件 → `data/backups/`，保留 14 份）
+- 备份计划任务: `scripts\install-backup-task.ps1`（每日 12:00，任务名 `OMPCB-Backup`；`-Uninstall` 卸载）
 - 发布: 双击 `scripts\deploy-quick.bat`（日常）/ `scripts\deploy.bat`（改过 package.json 时）
 - 版本: Node ≥ 20 必需（Vite 6 + better-sqlite3）
 
@@ -35,6 +37,8 @@ PCB 打样物料管理工具：BOM 清单 + 库存台账，按制造商料号（
 - `.bat` 必须无 BOM + CRLF；`.ps1` 必须带 BOM 的 UTF-8（PS 5.1 读无 BOM 按 ANSI 解析，中文会乱）。`.bat` 注释用 ASCII，中文只出现在 `chcp 65001` 之后的 `echo` 里。
 - 换机器不能拷 `node_modules/`（better-sqlite3 是原生模块，须目标机重装）。
 - 数据库 `data/ompcb.db` 不入库（gitignore），WAL 模式（-wal/-shm 也忽略）；`server/db/schema.sql` 与 `seed.tsv` 是源码**必须被跟踪**。
+- **备份不能直接拷 `data/ompcb.db`**：WAL 模式下真实数据大量在 `-wal` 里，单拷会得到落后/残缺快照；必须走 `scripts/backup-db.mjs`（在线备份 API 合并 WAL，产物只剩单个 `.db`）。
+- 备份目录默认 `data/backups/`（随 `data/` 被 ignore），可用 `OMPCB_BACKUP_DIR` 指到 D 盘/同步盘；源库路径口径同 `server/db/index.js`（`OMPCB_DB`）。
 - 部署时 `dist/` 必须重新 build（`serve.ps1` 只在 dist 缺失时才构建，改前端后不重建会发布旧页面）；install 前必须先停服务（运行中 better-sqlite3 锁 .node 文件）。
 
 ## Architecture
@@ -59,3 +63,6 @@ PCB 打样物料管理工具：BOM 清单 + 库存台账，按制造商料号（
 - **schema 迁移直接 `ALTER TABLE ADD COLUMN`**：SQLite 不支持 IF NOT EXISTS，先 PRAGMA table_info 自查。
 - **发布不 rebuild**：改了前端但 dist/ 还在 → 页面是旧的。
 - **UI 显示口径与 CSV 导出不一致**：两处必须共用 `web/bom-display.js`，否则下单收货方看到两列不同值。
+- **备份直接拷 `.db`**：WAL 模式下会拿到落后甚至页级残缺的快照。用 `scripts/backup-db.mjs`（`db.backup()` 在线备份 API）。
+- **只读打开 WAL 库也会产生 `-wal`/`-shm`**：备份校验后忘了删 → `data/backups/` 里堆积孤儿文件，轮转统计也跟着错乱。校验完必须清理 `dest + '-wal' / '-shm'`。
+- **轮转 `keep` 没兜底**：`keep=0` 或 `undefined` 直接把目录清空（`slice(0)`）。一律 `Math.max(keep, 1)`。
