@@ -37,6 +37,7 @@ npm run dev        # 同时起 API(4000) 与前端(5173)
 | `npm start` | 生产模式，Express 直接托管 `dist/` |
 | `npm test` | 跑测试（临时库，不碰真实数据） |
 | `npm run seed` | **破坏性**：清空 materials 重新导入种子数据 |
+| `npm run backup` | 生成一致性快照到 `data/backups/`（合并 WAL，保留最近 14 份） |
 
 ## 部署（Windows 内网自用）
 
@@ -391,6 +392,7 @@ inventory_log   出入库流水
 - `migrate-inventory.js --force` 会清空库存台账和全部流水后从 BOM 重建，慎用
 - `data/ompcb.db` 已 gitignore，是本地运行时产物
 - 用了 WAL 模式，`.db-wal` / `.db-shm` 一并忽略
+- **备份不能直接拷 `data/ompcb.db`**：WAL 模式下真实数据大量在 `-wal` 里，单拷会得到落后/残缺快照。用 `npm run backup`（SQLite 在线备份 API，产物是 WAL 已合并的单文件，落在 `data/backups/`，保留最近 14 份）；每日 12:00 还有计划任务 `OMPCB-Backup`，服务启动前 `serve.ps1` 也会兜底备一份。回滚 = 停服务 → 用备份覆盖 `data/ompcb.db` 并删掉残留 `-wal`/`-shm` → 起服务。
 - 没有用户系统和权限，单人本地使用
 - **`mfr_pn` 没有唯一约束**（只有 `supplier_pn` 有）。两条不同供应商、相同制造商料号的库存记录，在 `LEFT JOIN inventory ON m.mfr_pn = i.mfr_pn` 下会让 BOM 行重复。因此"已焊接量"必须先在子查询里 `GROUP BY material_id` 预聚合完再 LEFT JOIN，不能把 `inventory_log` 直接塞进现有联接，否则行数翻倍、数字也翻倍。
 - **迁移之前的历史出库流水没有 `material_id`**，不会计入行级"已焊接"统计（产品级汇总仍包含它们）。遵循项目既有的"不做猜测性回填"惯例。
