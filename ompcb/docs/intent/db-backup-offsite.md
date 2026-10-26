@@ -1,6 +1,6 @@
 # Intent: 备份不跟源库同盘——加异地副本
 
-Author: leopisces. Status: draft.
+Author: leopisces. Status: accepted.
 日期: 2026-10-26
 
 ## Problem
@@ -54,6 +54,21 @@ Author: leopisces. Status: draft.
 6. **备份状态可见性**：要不要在 README 里给一条命令（如 `npm run backup:status`）查看
    各目标最近一次成功时间与占用空间？
 7. **恢复流程放哪**：`REVIEW.md` 已有回滚预案，`README` 是否再写一份面向"我明天忘了"的短版？
+
+## 决策（2026-10-26，产品负责人已确认）
+
+| # | 问题 | 决定 |
+|---|------|------|
+| 1 | 异地目标 | **双写**：`D:\ompcb-backup`（本地第二盘）+ `D:\BaiduSyncdisk\ompcb-backup`（云端异地） |
+| 2 | C 盘本地副本 | 保留（三写），恢复走本地快速路径 |
+| 3 | 保留份数 | 本地 14、D 盘 30、同步盘 30 |
+| 4 | 同步盘容错 | 轮转严格只认 `^ompcb-\d{8}-\d{6}\.db$`；带 ` (1)` 后缀的冲突副本不自动删，仅在状态输出里提示 |
+| 5 | D 盘不可用 | 跳过该目标并告警；其余照常；本地成功即整体成功 |
+| 6 | 状态可见性 | 新增 `npm run backup:status`（最近成功时间 / 份数 / 占用） |
+| 7 | 恢复流程 | `REVIEW.md` 保留完整版，`README` 加 5 行短版 |
+
+> 已接受的衍生风险：备份落同步盘意味着 BOM 数据会上传到百度云端（料号/供应商/库位等字段）。
+> 敏感度由产品负责人判断并接受，对应 concern 记录在 `docs/specs/db-backup-offsite.md`。
 
 ## 范围外（明确不做）
 
