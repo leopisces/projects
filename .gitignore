@@ -1,8 +1,17 @@
-# Agent working state
-.omo/
+# 仓库根目录的忽略规则。
+# 约定：每个项目目录维护自己的 .gitignore，本文件只管仓库根这一层（用 / 前缀锚定，
+# 避免误伤子项目里同名但需要入库的东西）。
+#   inline-web-translator/.gitignore  Chrome 扩展
+#   ompcb/.gitignore                  OMP 控制台
+#   xw/.gitignore                     小歪机器人固件/模型
 
-# Build artifacts & private keys
-inline-web-translator/dist/
+# ---- 编码助手 / 工具运行时状态 ----
+/.omo/
+/.codegraph/
+/.playwright-cli/
+/.playwright-mcp/
 
-# Local config with secrets
-inline-web-translator/config.json
+# ---- 系统与编辑器垃圾 ----
+.DS_Store
+Thumbs.db
+Desktop.ini
