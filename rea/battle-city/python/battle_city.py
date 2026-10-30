@@ -15,7 +15,8 @@ from audio import Audio
 from bc_logic import (Random, FrameCounter, enemy_goal_stage,
                       FLAG_FOLLOW_HQ, FLAG_RANDOM, FLAG_FOLLOW_P1,
                       FLAG_FOLLOW_P2)
-from bc_rom import (Rom, NES_PALETTE, ENEMY_BASE, PLAYER_BASE, EAGLE_TILES,
+from bc_rom import (Rom, NES_PALETTE, tank_tile, TANK_TYPE_BASE, PLAYER_TILE,
+                    PLAYER_TILE_SIDE, EAGLE_TILES,
                     EAGLE_DEAD_TILES, POWERUP_BASE, SPR_PALETTES, ENEMY_PALETTE,
                     BLOCK_DEF, BG_BRICK, BG_STEEL_1, BG_STEEL_2,
                     sprite_block)
@@ -548,8 +549,6 @@ class Game:
         if d is not None:
             if p.move(self.field, d):
                 self.audio.set_engine(True)
-            else:
-                self.audio.play('bump')
             p.slide = 8
         elif p.slide > 0:
             self.audio.set_engine(False)
@@ -557,6 +556,7 @@ class Game:
             # 冰面上滑行
             if self.field.kind_at_px(p.x + 8, p.y + 8) == ICE:
                 p.move(self.field, p.dir)
+                self.audio.play('ice')     # $0310：冰面滑行
 
         if self.fire_pressed() and p.fire_cd == 0:
             mine = sum(1 for b in self.bullets if b.owner is p and b.alive)
@@ -611,7 +611,7 @@ class Game:
                         t.goal = FLAG_RANDOM   # con_tank_flag_90
                 else:
                     t.wheels ^= 0x04
-                    self.audio.play('bump')
+                    # 原版撞墙不发声，只翻履带帧
 
             # 原版开火：先对齐（与玩家/基地同行或同列）再按 PRNG 抽
             if t.fire_cd == 0:
@@ -818,6 +818,7 @@ class Game:
             self.audio.play('hit')
             self.score += ENEMY_SCORE.get(t.kind, 100)
             self.kills += 1
+            self.audio.play('kill')          # $030A：敌方坦克被击毁
             if t.bonus:                      # 只有闪光车掉道具
                 self.drop_powerup()
 
@@ -958,12 +959,14 @@ class Game:
                 pygame.draw.rect(c, NES_PALETTE[0x30],
                                  (int(t.x) + 4, int(t.y) + 4, 8, 8), 2)
             return
+        # ROM $DFB6：tile = ($A8 & $F0) + $B0 + dir*8
         if t.player:
-            base = PLAYER_BASE + t.dir * 4
+            # 玩家只有 2 张图：竖（上/下）用 $F1，横（左/右）用 $F9
+            base = PLAYER_TILE if t.dir in (UP, DOWN) else PLAYER_TILE_SIDE
             pal = SPR_PALETTES[0]
         else:
             ki = KIND_INDEX.get(t.kind, 0)
-            base = ENEMY_BASE + t.dir * 4
+            base = tank_tile(TANK_TYPE_BASE.get(t.kind, 0x80), t.dir)
             pal = SPR_PALETTES[ENEMY_PALETTE[ki]]
         # 闪光车：原版用帧计数交替调色板（每 16 帧闪一次）
         if t.bonus and not t.player and (self.frames.lo & 0x10):

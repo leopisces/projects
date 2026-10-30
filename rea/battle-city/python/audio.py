@@ -19,10 +19,11 @@ SOUND_MAP = {
     'steel':      ('seq_13.wav', 0.40, 2, 20, True),
     'hit':        ('seq_07.wav', 0.55, 4, 30, True),
     'armor':      ('seq_14.wav', 0.40, 2, 25, True),
-    'spawn_item': ('seq_09.wav', 0.55, 2, 15, True),
+    'spawn_item': ('seq_09.wav', 0.55, 2, 15, True),    # $E8BE 掉道具
+    'bonus':      ('seq_04.wav', 0.55, 1, 8, False),    # $E972 case10 加命 → $0304/$0305
     'get_item':   ('seq_06.wav', 0.55, 2, 10, True),
-    'bonus':      ('seq_10.wav', 0.50, 4, 10, False),
-    'bump':       ('seq_16.wav', 0.35, 1, 5, False),
+    'kill':       ('seq_10.wav', 0.50, 4, 10, False),   # $E70C：敌方坦克被击毁
+    'ice':        ('seq_16.wav', 0.35, 1, 5, False),   # $DBB9 冰面滑行（$0103 bit7）
     'engine':     ('seq_17.wav', 0.22, 3, 1, False),   # 履带声，循环
     'tick':       ('seq_19.wav', 0.30, 2, 5, False),
 }

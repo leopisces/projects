@@ -29,10 +29,28 @@ NES_PALETTE = [
 ]
 
 # ---- 精灵 tile（PT0，tile id 直接索引）----
-# 敌方 4 种类型 × 4 朝向：类型 = $B9/$BD/$C1/$C5（$A8 类型字节 $80/$A0/$C0/$E0 换算而来）
-# 实测 $B9/$BD/$C1/$C5 是同一辆坦克的 4 个朝向（炮管方向不同），不是 4 种类型
-ENEMY_BASE = 0xB9                     # 敌方 = $B9 + dir*4
-PLAYER_BASE = 0xF1                    # 玩家坦克 4 朝向 = $F1/$F5/$F9/$FD
+# 坦克 tile 公式（REA/Ghidra 确认，来自 $DFB6 + sub_DA73）：
+#   tile = ($A8 & $F0) + $B0(动画帧) + dir*8
+# $A8 的高半字节是坦克类型，dir 是朝向（0=上 1=左 2=下 3=右）。
+# 注意：$DF46 是"出生闪光动画"的绘制，不是坦克本体，别搞混。
+TANK_TYPE_BASE = {
+    'basic': 0x80,      # 基本坦克
+    'fast':  0xA0,      # 快速坦克
+    'power': 0xC0,      # 火力坦克
+    'armor': 0xE0,      # 装甲坦克
+}
+# 玩家坦克（$DF33 → sub_DEF0，A=$08 → tile=$F9）与 $F1 组成两组图：
+#   $F1 = 一组，$F9 = 另一组；原版玩家坦克只有 2 张（竖/横），
+#   上下朝向共用同一张。16x16 = T, T+1, T+2, T+3（左上/左下/右上/右下）
+PLAYER_TILE = 0xF1
+PLAYER_TILE_SIDE = 0xF9
+
+
+def tank_tile(type_base, direction, frame=0):
+    """按 ROM $DFB6 的公式计算坦克右上 tile 编号。"""
+    return (type_base + frame + direction * 8) & 0xFF
+
+
 EAGLE_TILES = (0xC8, 0xCA, 0xC9, 0xCB)          # TL, TR, BL, BR
 EAGLE_DEAD_TILES = (0xCC, 0xCE, 0xCD, 0xCF)
 POWERUP_BASE = 0x81                   # 道具 tile = $81 + type*4
