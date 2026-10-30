@@ -471,6 +471,121 @@ def render_mix(engine, idxs, max_frames=60 * 30, tail=0.5):
     return synth(snaps, wr, tail) if snaps else np.zeros(0)
 
 
+# 槽位命名（按触发地址逆向 + 数据特征归类，见 sound/README.md 的槽位表）
+SLOT_NAMES = {
+    0: 'sfx_pause',
+    1: 'bgm_stage_pulse1',
+    2: 'bgm_stage_tri',
+    3: 'bgm_stage_pulse2',
+    4: 'sfx_04',
+    5: 'sfx_05',
+    6: 'sfx_06',
+    7: 'sfx_noise_07',
+    8: 'sfx_08',
+    9: 'sfx_09',
+    10: 'sfx_noise_10',
+    11: 'sfx_11',
+    12: 'sfx_tri_12',
+    13: 'sfx_13',
+    14: 'sfx_14',
+    15: 'sfx_15',
+    16: 'sfx_16',
+    17: 'sfx_17',
+    18: 'sfx_18',
+    19: 'sfx_19',
+    20: 'sfx_noise_20',
+    21: 'bgm_hiscore_pulse1',
+    22: 'bgm_hiscore_pulse2',
+    23: 'bgm_hiscore_tri',
+    24: 'jingle_gameover_pulse1',
+    25: 'jingle_gameover_pulse2',
+    26: 'jingle_gameover_tri',
+    27: 'jingle_result',
+}
+
+
+def render_exact(engine, idx, max_frames=60 * 120, tail=0.15):
+    """不做静音截断：槽状态归零后仅录 3 帧尾音。
+
+    旧版用“连续静音 20 帧就 break”会把中间有停顿的曲子提前砍断，也会误报为
+    “引擎停摆”；这里改为只看槽状态归零，并且停止后只留 3 帧（~0.05s）。
+    """
+    engine.trigger(idx)
+    snaps, wr = [], []
+    ended = 0
+    for _ in range(max_frames):
+        s = engine.frame()
+        snaps.append(s)
+        wr.append(list(engine.writes))
+        if engine.ch[idx].status == 0:
+            ended += 1
+            if ended > 3:
+                break
+        else:
+            ended = 0
+    if not snaps:
+        return np.zeros(0)
+    return synth(snaps, wr, tail)
+
+
+def render_mix_exact(engine, idxs, max_frames=60 * 180, tail=0.15):
+    for i in idxs:
+        engine.trigger(i)
+    snaps, wr = [], []
+    ended = 0
+    for _ in range(max_frames):
+        s = engine.frame()
+        snaps.append(s)
+        wr.append(list(engine.writes))
+        if all(engine.ch[i].status == 0 for i in idxs):
+            ended += 1
+            if ended > 3:
+                break
+        else:
+            ended = 0
+    return synth(snaps, wr, tail) if snaps else np.zeros(0)
+
+
+def audio_stats(x, seg_ms=100.0):
+    """在**最终波形**上统计。
+
+    silent = 100ms 分段峰值 ≤ 0.01 的段占比。对于音乐，音符间隙也会计入，
+    因此它**不是“是否完整”的判据**（完整性看槽状态归零）。它只用于发现
+    “尾部整段没声”这种真异常。
+    """
+    if len(x) == 0:
+        return 0.0, 0.0, 1.0, 0.0
+    xa = np.abs(x)
+    rms = float(np.sqrt(np.mean(x.astype(np.float64) ** 2)))
+    peak = float(xa.max())
+    step = max(1, int(SR * seg_ms / 1000.0))
+    nseg = len(xa) // step
+    if nseg == 0:
+        return rms, peak, 0.0, len(x) / SR
+    segmax = xa[:nseg * step].reshape(nseg, step).max(axis=1)
+    silent = float(np.mean(segmax < 0.01))
+    return rms, peak, silent, len(x) / SR
+
+
+def tail_silent(x, seg_ms=100.0):
+    """尾部连续静音段占比——用于体检“尾巴拖太长”。"""
+    if len(x) == 0:
+        return 1.0
+    xa = np.abs(x)
+    step = max(1, int(SR * seg_ms / 1000.0))
+    nseg = len(xa) // step
+    if nseg == 0:
+        return 0.0
+    segmax = xa[:nseg * step].reshape(nseg, step).max(axis=1)
+    n = 0
+    for v in segmax[::-1]:
+        if v < 0.01:
+            n += 1
+        else:
+            break
+    return n / float(nseg)
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     rom_path = sys.argv[1] if len(sys.argv) > 1 else \
@@ -481,21 +596,51 @@ def main():
     outdir = os.path.join(os.path.dirname(here), 'sound')
     os.makedirs(outdir, exist_ok=True)
 
-    print(f"ROM: {rom_path}")
-    print(f"{'#':>2} {'地址':>6} {'声道':<6} {'音符数':>6} {'秒':>6}  文件")
-    summary = []
+    print(f"ROM: {rom_path}\n")
+
+    print("=== 单个槽 (28) ===")
+    rows = []
     for i in range(28):
-        e = Engine(rom, 1)
-        wav = render(e, i, max_frames=60 * 20)
-        secs = len(wav) / SR
-        notes = len(e.ch[i].trace)
-        fn = f"seq_{i:02d}.wav"
+        e = Engine(rom)                 # 每槽新建引擎，避免状态污染
+        wav = render_exact(e, i)
+        rms, peak, sil, dur = audio_stats(wav)
+        ttail = tail_silent(wav)
+        name = SLOT_NAMES.get(i, 'slot_%02d' % i)
+        fn = 'slot_%02d_%s.wav' % (i, name)
         if len(wav):
             write_wav(os.path.join(outdir, fn), wav)
-        summary.append((i, rom.ptrs()[i], e.ch[i].hw, notes, secs, fn))
-        print(f"{i:>2} ${rom.ptrs()[i]:04X} {HW_NAMES.get(e.ch[i].hw,'?'):<6} "
-              f"{notes:>6} {secs:>6.1f}  {fn}")
+        rows.append((i, name, dur, rms, peak, sil, ttail))
+        flag = '  <-- 尾部静音过长' if ttail > 0.25 else ''
+        print('  %2d %-22s %5.2fs rms=%.3f peak=%.3f gap=%4.1f%% tail=%4.1f%%%s' %
+              (i, name, dur, rms, peak, sil * 100, ttail * 100, flag))
 
+    print("\n=== 完整曲子混音 ===")
+    for name, (idxs, desc) in MIXES.items():
+        e = Engine(rom)
+        wav = render_mix_exact(e, idxs)
+        rms, peak, sil, dur = audio_stats(wav)
+        ttail = tail_silent(wav)
+        if len(wav):
+            write_wav(os.path.join(outdir, name + '.wav'), wav)
+        print('  %-20s %5.2fs rms=%.3f peak=%.3f gap=%4.1f%% tail=%4.1f%%' %
+              (name, dur, rms, peak, sil * 100, ttail * 100))
+
+    # 暂停慢放版（原版 $F5 = $1C → 1，引擎降速）
+    slow = render_pause_slow(rom, [1, 2, 3])
+    if len(slow):
+        write_wav(os.path.join(outdir, 'bgm_paused_slow.wav'), slow)
+        print('  %-20s %5.2fs  槽[1,2,3] 暂停时引擎降速' %
+              ('bgm_paused_slow', len(slow) / SR))
+
+    # 汇总指数表
+    with open(os.path.join(outdir, 'index.txt'), 'w', encoding='utf-8') as f:
+        f.write('槽位  名称                    时长     RMS     峰值   间隙率  尾部静音\n')
+        f.write('-' * 82 + '\n')
+        for i, name, dur, rms, peak, sil, ttail in rows:
+            f.write('%3d   %-22s %6.2fs  %.3f  %.3f  %5.1f%%  %5.1f%%\n' %
+                    (i, name, dur, rms, peak, sil * 100, ttail * 100))
+
+    # 记谱
     with open(os.path.join(outdir, 'sequences.txt'), 'w', encoding='utf-8') as f:
         for i in range(28):
             e = Engine(rom, 1)
@@ -504,21 +649,9 @@ def main():
             f.write(f"\n===== 音序 {i}  @ ${rom.ptrs()[i]:04X}  "
                     f"{HW_NAMES.get(e.ch[0].hw, '?')} =====\n")
             f.write(describe(rom, rom.ptrs()[i]) + "\n")
-    print(f"\n音频 -> {outdir}\\seq_XX.wav   记谱 -> sequences.txt")
 
-    print("\n=== 完整曲子混音 ===")
-    for name, (idxs, desc) in MIXES.items():
-        e = Engine(rom)
-        wav = render_mix(e, idxs)
-        if len(wav):
-            write_wav(os.path.join(outdir, name + '.wav'), wav)
-        print(f"  {name}.wav  {len(wav)/SR:5.1f}s  槽{idxs}  {desc}")
-
-    # 暂停慢放版（原版 $F5 = $1C → 1，引擎降速）
-    slow = render_pause_slow(rom, [1, 2, 3])
-    if len(slow):
-        write_wav(os.path.join(outdir, 'bgm_paused_slow.wav'), slow)
-        print(f"  bgm_paused_slow.wav  {len(slow)/SR:5.1f}s  槽[1,2,3]  暂停时引擎降速")
+    print(f"\n音频 -> {outdir}\\slot_XX_*.wav + bgm_*/jingle_*.wav")
+    print(f"索引 -> index.txt    记谱 -> sequences.txt")
 
 
 if __name__ == '__main__':
