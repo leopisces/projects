@@ -4,7 +4,7 @@
 #       「装依赖 → 构建 → 起服务 → 健康检查」的完整发布流程。
 #
 # 运行（Windows PowerShell，无需管理员）：
-#   cd C:\Users\Leopisces\Desktop\projects\ompcb
+#   cd D:\projects\ompcb
 #   powershell -ExecutionPolicy Bypass -File scripts\restore-autostart.ps1
 #
 # 与 deploy.ps1 的分工：

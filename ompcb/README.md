@@ -90,8 +90,12 @@ scripts\deploy.bat -SkipInstall     # 等价于 deploy-quick.bat
 | `scripts\deploy-quick.bat` | **日常发布**，双击即可 |
 | `scripts\deploy.bat` | 完整发布（含 `npm install`），双击即可 |
 | `scripts\deploy.ps1` | 发布逻辑本体，上面两个 bat 都是它的壳 |
-| `scripts\serve.ps1` | 前台启动，排错看报错用 |
+| `scripts\serve.ps1` | 前台启动，排错看报错用；启动前自动备一份数据库 |
 | `scripts\install-autostart.ps1` | 注册自启，加 `-Uninstall` 卸载 |
+| `scripts\restore-autostart.ps1` | 换机器 / 项目路径变更后的首次启用：注册计划任务后交由 `deploy.ps1` 完成发布 |
+| `scripts\check-status.ps1` | 探活：`/api/health` 状态码、计划任务状态、4000 端口监听 |
+| `scripts\install-backup-task.ps1` | 注册每日 12:00 备份计划任务 `OMPCB-Backup`，`-Uninstall` 卸载 |
+| `scripts\backup-db.mjs` | 备份本体（`npm run backup` / `npm run backup:status` 都调它） |
 
 ### 几个坑
 

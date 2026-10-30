@@ -21,13 +21,24 @@ collect(root) → findBlockAncestor 分组 → IntersectionObserver 排队
 → processBlock → translateText → batchQueue/serial → memo/localStorage
 → 原文下方插入 ppp-trans
 ```
-- 普通正文攒批：Google 8 条/600ms；LLM 12 条/800ms。
+- 普通正文攒批：Google 8 条 / 1200 字符 / 600ms；LLM 12 条 / 2400 字符 / 800ms（`BATCH_*`、`LLM_BATCH` 见 content.js:21-23、154）。
 - `memo` 精确键 + `looseKey` 宽松键；空译文不缓存。
-- 中文页面 `chinesePageSkip=true`：普通块跳过，字幕块仍处理。
+- 中文页面 `chinesePageSkip=true`：普通块跳过（`content.js:1273`），字幕块仍处理。
+
+## CONSTANTS（content.js 顶部）
+| 名称 | 值 | 含义 |
+|------|----|------|
+| `MIN_GAP_MS` | 500 | 请求最小间隔 |
+| `MAX_RETRIES` / `RETRY_BASE_MS` | 4 / 2500 | 429/503 指数退避 |
+| `BATCH_MAX_ITEMS` / `BATCH_MAX_CHARS` / `BATCH_WAIT_MS` | 8 / 1200 / 600 | Google 攒批 |
+| `DEBOUNCE_MS` / `SUB_DEBOUNCE_MS` | 300 / 40 | 正文变动 / 字幕变动防抖 |
+| `PREFETCH_AHEAD_GOOGLE` / `PREFETCH_AHEAD_DEEPSEEK` | 40 / 25 | 字幕预取前瞻秒数 |
+| `PREFETCH_MIN_INTERVAL_MS` / `PREFETCH_MAX_TEXTS` | 1500 / 120 | 预取节流 / 单次预算 |
+| `DEEPSEEK_MODELS` | `deepseek-flash`、`deepseek-v4-pro` | 模型白名单（默认 `deepseek-flash`） |
 
 ## SUBTITLE PIPELINE
-1. `bridge.js` 只取第一条 `kind=subtitles/captions && mode=showing` 的轨；忽略 metadata/隐藏轨。
-2. `prefetchVideoCues` 预取未来 cue：DeepSeek/Ark 25s，Google 40s。
+1. `bridge.js`（MAIN world）`collectTracks` 汇总 player/tech/video/`<track>` 四处来源，`collectCues` 只取第一条 `kind=subtitles/captions && mode=showing` 的轨（忽略 metadata/隐藏轨），回看窗口 120s。
+2. `prefetchVideoCues` 预取未来 cue：DeepSeek/Ark 25s，Google 40s；`bridge.js` 不可用时回退读 `video.textTracks` 与 `.video-js track`。
 3. `processBlock(..., fast=true)` → `renderSubtitleOverlay`：译文写入播放器容器内的独立悬浮层，**不修改 cue DOM**。
 4. `lookupCueTranslation` 按 `currentTime` + 文本相似度匹配已预取的 cue 译文。
 5. 字幕防抖 40ms 且不被高频 DOM 变更重置；快速请求优先于预取/正文。

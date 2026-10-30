@@ -1,16 +1,20 @@
 # Projects
 
-个人项目仓库，目前包含两个项目：
+个人项目仓库，目前包含三个相互独立的项目（无 workspace，各自有 `.gitignore` 与 `AGENTS.md`）：
 
 - **Inline Web Translator**：Chrome 扩展，把网页正文与视频字幕逐句翻译成简体中文，支持 Google、DeepSeek、火山方舟三种引擎。
 - **OMPCB**：PCB 打样物料管理工具，BOM 清单与库存台账按制造商料号自动关联。
+- **xw**：小歪机器人 v2 的交付物仓库（ESP32-S3 固件成品 + 3D 模型），无源码。
 
 ## 项目列表
 
-| 项目 | 说明 | 技术栈 | 详细文档 |
-|------|------|--------|----------|
-| [inline-web-translator](./inline-web-translator/) | Chrome Manifest V3 扩展：网页正文 + 视频字幕翻译 | 原生 JS/CSS，无构建 | [扩展 README](./inline-web-translator/README.md) |
-| [ompcb](./ompcb/) | PCB 打样物料管理：BOM 清单 + 库存台账 | Vue 3 + Element Plus + Vite 6 / Express 4 + SQLite | [项目 README](./ompcb/README.md) |
+| 项目 | 说明 | 技术栈 | 版本 | 详细文档 |
+|------|------|--------|------|----------|
+| [inline-web-translator](./inline-web-translator/) | Chrome Manifest V3 扩展：网页正文 + 视频字幕翻译 | 原生 JS/CSS，无构建 | 1.14.4 | [扩展 README](./inline-web-translator/README.md) |
+| [ompcb](./ompcb/) | PCB 打样物料管理：BOM 清单 + 库存台账 | Vue 3 + Element Plus + Vite 6 / Express 4 + SQLite | 1.0.0 | [项目 README](./ompcb/README.md) |
+| [xw](./xw/) | 小歪机器人 v2：固件成品 + 3D 模型（纯交付物） | ESP32-S3 固件 / STP 模型 | 固件 0.0.56 | [说明](./xw/AGENTS.md) |
+
+> 各项目的开发规则在各自目录的 `AGENTS.md`（ompcb 另有 `CLAUDE.md` 与 `docs/开发规范.md`）；仓库级交叉规则见根 [`AGENTS.md`](./AGENTS.md)。
 
 ## 目录结构
 
@@ -33,15 +37,20 @@ projects/
 │   ├── data/                  # 运行时 SQLite 数据库（gitignore，自动建库）
 │   ├── scripts/               # 辅助脚本
 │   └── package.json
-├── .gitignore                 # 排除 config.json、dist/、.omo/
+├── xw/                        # 小歪机器人 v2：纯交付物，无源码/无构建
+│   ├── OpenDeskBotV2-firmware-0.0.56/   # 固件 bin（0.0.56）+ 烧录说明 README.txt
+│   └── *.stp                  # 摄像头卡子、打印件 3D 模型
+├── .gitignore                 # 只管仓库根这一层（/ 前缀锚定）
 └── README.md
 ```
+
+每个子项目维护自己的 `.gitignore`：translator 排除 `config.json` 与 `dist/`；ompcb 排除 `node_modules/`、`data/`、`dist/`、`.env`；xw 只排除构建目录与临时文件（固件 bin 与 stp 必须入库）。
 
 ---
 
 # Inline Web Translator
 
-当前版本：**1.14.3**（见 `inline-web-translator/manifest.json`）
+当前版本：**1.14.4**（见 `inline-web-translator/manifest.json`）
 
 ## 功能
 
@@ -161,9 +170,47 @@ bridge.js 读取当前 showing 的 subtitles/captions 轨
 
 ## 安全
 
-- `config.json`、`dist/`（含 `ppp.pem` 私钥）、`.omo/` 已被 `.gitignore` 排除，请勿提交。
-- 仓库中的 `config.json.simple` 只保留空 Key。
+- translator：`config.json`、`dist/`（含 `ppp.pem` 私钥）、`.omo/` 已被 `.gitignore` 排除，请勿提交；仓库中的 `config.json.simple` 只保留空 Key。
+- ompcb：`.env` 与 `data/` 不入库，`.env.example` 是模板；`data/ompcb.db` 含全部业务数据，外发前先脱敏。
 - 若 Key 曾出现在聊天、日志或提交中，请到对应平台轮换。
+
+---
+
+# OMPCB
+
+当前版本：**1.0.0**（PCB 打样物料管理，单人本地内网自用，**无鉴权**）。
+
+两份台账按制造商料号（`mfr_pn`）自动关联：BOM 清单管「这块板要用什么」，库存台账管「手头有什么、放在哪」。BOM 不存库存信息，查询时 `LEFT JOIN` 动态带入。
+
+```bash
+cd ompcb
+npm install          # Node ≥ 20
+npm run dev          # API :4000 + Web :5173
+npm test             # node:test，临时库，不碰真实数据
+npm run build        # 发布前必跑
+npm start            # 生产：单进程单端口 :4000
+npm run backup       # 一致性快照（WAL 已合并），三写
+```
+
+- 开发必须走 AI-Native SDLC：`docs/intent` → `docs/specs` → `docs/plans` → 实现 → `npm test`，见 `ompcb/docs/开发规范.md`。
+- 备份**不能直接拷 `.db`**（WAL 下真实数据在 `-wal`）；用 `scripts/backup-db.mjs`。
+- 部署：`scripts/deploy-quick.bat`（日常）/ `deploy.bat`（改过 package.json）。
+- 完整说明见 [ompcb/README.md](./ompcb/README.md) 与 [ompcb/AGENTS.md](./ompcb/AGENTS.md)。
+
+---
+
+# xw
+
+小歪机器人 v2（ESP32-S3，`deskbot_v2` 板）的**交付物仓库**：不含源码、无构建、无依赖。
+
+| 内容 | 说明 |
+|------|------|
+| `OpenDeskBotV2-firmware-0.0.56/` | 固件 0.0.56：`bootloader.bin`(0x0) / `partitions.bin`(0x8000) / `boot_app0.bin`(0xe000) / `firmware.bin`(0x10000) + 烧录说明 |
+| `*.stp` | 摄像头卡子、打印件 3D 模型（交付物，必须入库） |
+
+- 上游固件项目：<https://github.com/tudoom/OpenDeskBotV2>。
+- 新增版本请**新建版本目录**、保留旧版（回滚依据），不要原地覆盖 bin。
+- 烧录步骤见 `xw/OpenDeskBotV2-firmware-0.0.56/README.txt` 或 [xw/AGENTS.md](./xw/AGENTS.md)。
 
 ## 许可
 
