@@ -45,6 +45,19 @@ LOGO_LINES = (('BATTLE', 26, 46), ('CITY', 60, 86))   # 巨型砖块字，像素
 MENU_ITEMS = ('1 PLAYER', '2 PLAYERS', 'CONSTRUCTION')
 MENU_TEXT_X, MENU_TEXT_Y = 88, 136      # 列 11 行 17，行距 16px
 MENU_CURSOR_X, MENU_CURSOR_Y0 = 72, 139  # $C9C7/$CA85
+
+# $C49C 隐藏的 credits 画面（选单里 $4B==7 且 $4A==$74 时按 Start 进入）
+CREDITS_LINES = ((8, 8, 'THIS PROGRAM WAS'),
+                 (8, 10, 'WRITTEN BY'),
+                 (8, 12, 'OPEN-REACH'),
+                 (8, 14, 'WHO LOVES NORIKO'))
+CREDITS_DOT_ROW, CREDITS_DOT_COL = 16, 8   # 5 个点，逐字出现
+CREDITS_WAIT = 64                          # sub_C567：等 $0B & $3F 个帧
+CREDITS_STEPS = 10                         # 10 次空等 / 9 次绘制（4 行 + 5 点）
+CREDITS_DROP_X = 120                       # sub_C575：($56,$57) = ($78,$1E)
+CREDITS_DROP_Y0, CREDITS_DROP_Y1 = 30, 248
+CREDITS_DROP_DELAY = 28                    # 7 轮 × 4 次 sub_C5B0
+CREDITS_TRIGGER_A, CREDITS_TRIGGER_B = 0x74, 7
 BAND_TILES = tuple(range(0x60, 0x69))    # 选单下方的 9 tile 装饰带（$D28F）
 STAGE_LABEL_TILES = (0x23, 0x24, 0x25, 0x26, 0x27)   # "STAGE"（$CA91）
 STAGE_TEXT_X, STAGE_TEXT_Y = 96, 112     # 列 12 行 14
@@ -380,6 +393,11 @@ class Game:
         self.state_timer = 0
         self.title_scroll = 0         # $4F
         self.menu_index = 0           # $83
+        self.menu_code_a = 0          # $4A：选单里 ↓ 加 $10、→ 减 1 的隐藏计数
+        self.menu_code_b = 0          # $4B：构造模式按 Start 退出的次数（开局清零）
+        self.credit_step = 0          # credits 画面进度
+        self.credit_timer = 0
+        self.drop_y = 0
         self.mode = 0                 # 0 = 1P, 1 = 2P
         self.pending_stage = 1        # 关卡选择画面的 $85
         self.custom_codes = None      # 构造模式画出来的图（$4B 保活的地图）
@@ -592,6 +610,8 @@ class Game:
             self.tick_title()
         elif self.state == 'menu':
             self.tick_menu()
+        elif self.state == 'credits':
+            self.tick_credits()
         elif self.state == 'stagesel':
             self.tick_stage_select()
         elif self.state == 'build':
@@ -612,20 +632,61 @@ class Game:
         """$C7AB：240 帧把整屏从下往上推入，期间按 Start/Select 立刻跳到选单。"""
         if self.title_scroll >= TITLE_SCROLL_FRAMES:
             self.title_scroll = TITLE_SCROLL_FRAMES
-            self.state = 'menu'
+            self.enter_menu()
             return
         self.title_scroll += 1
         if self.press_any(KEY_START + KEY_SELECT):
             self.title_scroll = TITLE_SCROLL_FRAMES
-            self.state = 'menu'
+            self.enter_menu()
+
+    def enter_menu(self):
+        """$C9E0：每次进选单都把 $4A 清零（$4B 只在开局 $C359 清）。"""
+        self.state = 'menu'
+        self.menu_code_a = 0
 
     def tick_menu(self):
-        """$C9C0：Select 循环三项，Start 确认（原版 Up/Down 不参与）。"""
+        """$C9C0：Select/↓ 循环三项，Start 确认。
+
+        $CA04/$CA17：按住 ↓ 给隐藏计数 $4A 加 $10，按住 → 减 1；
+        $CA43：$4B==7 且 $4A==$74 时按 Start → 进 $C49C 的 credits 画面。
+        """
         if self.press_any(KEY_SELECT + KEY_DOWN):
             self.menu_index = (self.menu_index + 1) % len(MENU_ITEMS)
         elif self.press_any(KEY_UP):
             self.menu_index = (self.menu_index - 1) % len(MENU_ITEMS)
+        if self.held_any(KEY_DOWN):
+            self.menu_code_a = (self.menu_code_a + 0x10) & 0xFF
+        if self.held_any(KEY_RIGHT):
+            self.menu_code_a = (self.menu_code_a - 1) & 0xFF
         if self.press_any(KEY_START):
+            if (self.menu_code_b == CREDITS_TRIGGER_B and
+                    self.menu_code_a == CREDITS_TRIGGER_A):
+                self.enter_credits()
+                return
+            self.choose_mode()
+
+    # ---- 隐藏的 credits 画面（$C49C，选单 $CA4F 跳进来）----
+    def enter_credits(self):
+        self.state = 'credits'
+        self.credit_step = 0
+        self.credit_timer = 0
+        self.drop_y = CREDITS_DROP_Y0
+
+    def tick_credits(self):
+        """每 64 帧出一行（4 行 + 5 个点），然后 $C575 让精灵从 y=30 落到 248。"""
+        if self.credit_step < CREDITS_STEPS:
+            self.credit_timer += 1
+            if self.credit_timer >= CREDITS_WAIT:
+                self.credit_timer = 0
+                self.credit_step += 1
+            return
+        if self.credit_timer < CREDITS_DROP_DELAY:
+            self.credit_timer += 1
+            return
+        self.drop_y += 1
+        if self.drop_y >= CREDITS_DROP_Y1:
+            # $C55A → $C9B0/$D7B4 之后回到选单，继续执行选中的那一项
+            self.enter_menu()
             self.choose_mode()
 
     def choose_mode(self):
@@ -660,6 +721,7 @@ class Game:
         self.stage = stage
         self.start_stage(self.custom_codes)
         self.custom_codes = None      # $C331 会把 $4B 清 0
+        self.menu_code_b = 0          # $C359：开局清 $4B
 
     def to_title(self):
         """$C095：回到标题（重新滑入）。"""
@@ -747,7 +809,8 @@ class Game:
         """$C150：Start 回选单，图进入“等开局”状态（$4B=1）。"""
         if self.build_codes is not None:
             self.custom_codes = [r[:] for r in self.build_codes]
-        self.state = 'menu'
+        self.menu_code_b += 1         # $C154：INC $4B（连退 7 次凑出 credits 条件）
+        self.enter_menu()
 
     def tick_curtain(self):
         """$CC90 close_grey_curtain / $CCB2 open_grey_curtain。
@@ -1245,6 +1308,8 @@ class Game:
         c.fill((0, 0, 0))
         if self.state in ('title', 'menu'):
             self.draw_title(c)
+        elif self.state == 'credits':
+            self.draw_credits(c)
         elif self.state == 'stagesel':
             self.draw_stage_select(c)
         elif self.state == 'build':
@@ -1463,6 +1528,24 @@ class Game:
             img = self.assets.spr(MENU_CURSOR_TILES[frame], SPR_PALETTES[0])
             c.blit(img, (MENU_CURSOR_X,
                          MENU_CURSOR_Y0 + 16 * self.menu_index))
+
+    def draw_credits(self, c):
+        """$C49C：4 行文字 + 5 个点逐字出现，最后 $C575 的精灵从 y=30 落到 248。
+
+        ⚠️ 原版进来先调 $D7B4 铺一层场地缓冲再写字，底色来源未取证，这里用黑底。
+        """
+        pal = self.bg_pal_sets[TITLE_PAL_SET][0]
+        shown = max(0, self.credit_step - 1)          # 两次空等之后才出第一行
+        for i in range(min(shown, len(CREDITS_LINES))):
+            cx, cy, s = CREDITS_LINES[i]
+            self.text(c, s, cx * TILE, cy * TILE, pal)
+        dots = min(5, max(0, shown - len(CREDITS_LINES)))
+        for i in range(dots):
+            self.text(c, '.', (CREDITS_DOT_COL + i) * TILE,
+                      CREDITS_DOT_ROW * TILE, pal)
+        if self.credit_step >= CREDITS_STEPS:          # 下落阶段（$04=1 → SP1）
+            c.blit(self.assets.spr(0x9D, SPR_PALETTES[1]),
+                   (CREDITS_DROP_X, int(self.drop_y)))
 
     def draw_stage_select(self, c):
         """$C159：黑屏 + "STAGE" + 关号（A/B 可改）。
