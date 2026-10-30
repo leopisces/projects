@@ -4,7 +4,7 @@
 **Branch:** main
 
 ## OVERVIEW
-个人多项目仓库（无 workspace / 无 npm 分包）：3 个相互独立的项目放在同一 git 仓库，各自有独立 `.gitignore`、独立技术栈、独立 `AGENTS.md`。
+个人多项目仓库（无 workspace / 无 npm 分包）：4 个相互独立的项目放在同一 git 仓库，各自有独立 `.gitignore`、独立技术栈、独立 `AGENTS.md`。
 **改哪个项目先读它的 `AGENTS.md`**——根文件只给交叉规则和高频坑。
 
 | 项目 | 是什么 | 技术栈 | 版本 | 细节 |
@@ -12,6 +12,7 @@
 | `inline-web-translator/` | Chrome MV3 扩展：网页正文 + 视频字幕逐句翻译 | 原生 ES5 JS/CSS，**无构建、无依赖** | 1.14.4 | `inline-web-translator/AGENTS.md` |
 | `ompcb/` | PCB 打样物料管理：BOM 清单 + 库存台账，按 mfr_pn 关联 | Vue 3 + Element Plus + Vite 6 / Express 4 + better-sqlite3 | 1.0.0 | `ompcb/AGENTS.md`、`ompcb/CLAUDE.md` |
 | `xw/` | 小歪机器人 v2：ESP32-S3 固件成品 + 3D 模型（纯交付物，无源码） | 二进制交付物 | 固件 0.0.56 | `xw/AGENTS.md` |
+| `rea/` | 逆向分析工作区：NES ROM 逆向 + Python 复刻版（Battle City） | Python 3.12 + pygame + numpy，自写 6502 反汇编器 | — | `rea/battle-city/REPORT.md`、`sound/README.md` |
 
 ## STRUCTURE
 ```text
@@ -34,8 +35,16 @@ projects/
 ├── xw/                      # 纯交付物（固件 bin + stp），无源码
 │   ├── OpenDeskBotV2-firmware-0.0.56/   # bootloader/partitions/boot_app0/firmware .bin + README.txt
 │   └── *.stp                            # 摄像头卡子、打印件模型（交付物，必须入库）
+├── rea/                     # 逆向分析工作区（Battle City）
+│   ├── .gitignore           # 只排除 *.nes 与 __pycache__
+│   └── battle-city/
+│       ├── REPORT.md        # 逆向报告：内存映射/引擎/分派/关卡格式
+│       ├── battle_city_dis.asm  # 反汇编清单（5047 条指令）
+│       ├── tools/           # an/chr/d6502/stage/sound 五个可复现脚本
+│       ├── sound/           # 音序解码产物：seq_00..27.wav + 完整曲子 + 引擎文档
+│       └── python/          # 可玩复刻版（图形/地图/音频全读 ROM）
 ├── .gitignore               # 只管仓库根这一层（/ 前缀锚定）
-└── README.md                # 三项目总览
+└── README.md                # 四项目总览
 ```
 
 ## HARD RULES（跨项目，不可协商）
@@ -45,6 +54,7 @@ projects/
 - **`inline-web-translator` 每次发布改动同步升 `manifest.json` 的 `version`**。
 - **密钥只进 gitignored 文件**：`inline-web-translator/config.json`（提交用空模板 `config.json.simple`）、`ompcb/.env`（模板 `.env.example`）；ompcb 的 `data/`、`dist/`、translator 的 `dist/` 都不入库。
 - 各项目 `.gitignore` 自己管自己；根 `.gitignore` 只用 `/` 前缀锚定仓库根，避免误伤子项目同名文件。
+- **`rea/` 的商业 ROM 本体（`*.nes`）永不入库**；其余 ROM 派生产物（反汇编/图形/合成音频/记谱）当前按用户决定入库，**仓库是公开的**，改动前先确认。
 
 ## WHERE TO LOOK
 | 任务 | 位置 |
@@ -60,6 +70,12 @@ projects/
 | 备份 / 恢复 | `ompcb/scripts/backup-db.mjs`、`npm run backup:status` |
 | 发布部署 | `ompcb/scripts/deploy-quick.bat`（日常）/ `deploy.bat`（改过 package.json） |
 | 固件烧录说明 | `xw/OpenDeskBotV2-firmware-0.0.56/README.txt` |
+| ROM 结构/内存映射/引擎 | `rea/battle-city/REPORT.md` |
+| 关卡数据解码 | `rea/battle-city/tools/stage.py`（表 `$F07A`，36×91 字节） |
+| 反汇编器（递归下降 + 跳转表跟进） | `rea/battle-city/tools/d6502.py` |
+| 音序引擎 / APU 合成 | `rea/battle-city/tools/sound.py`、`sound/README.md` |
+| 复刻版游戏逻辑 | `rea/battle-city/python/battle_city.py` |
+| 音频 4 声道仲裁 | `rea/battle-city/python/audio.py` |
 
 ## CODE MAP — inline-web-translator
 （无 LSP；以下为 grep 函数清单）
@@ -85,6 +101,18 @@ projects/
 | 前端壳 | `web/App.vue` | Tab 切换，无 vue-router |
 | 纯函数 | `web/{bom-display,expand-keys,designator,location,xlsx-import}.js` | 都被 `test/*.test.js` 锁住 |
 
+## CODE MAP — rea/battle-city
+
+| 区域 | 位置 | 要点 |
+|------|------|------|
+| ROM 解析层 | `python/bc_rom.py` | CHR 图形、调色板 `$D565`/`$D555`、关卡表 `$F07A`、敌方构成 `$E578`；**PT0=$0000 是精灵表，PT1=$1000 是背景表** |
+| 游戏主体 | `python/battle_city.py` | Field/Tank/Bullet/Game；13×13 场地，8px 粒度砖墙 |
+| 音频层 | `python/audio.py` | 复刻 NES 4 声道仲裁（方波1/方波2/三角/噪音），不是任意叠加 |
+| 反汇编器 | `tools/d6502.py` | 递归下降；跟进 `JMP ($0011)` 表与 `JSR $ECD0` 内联表（17 项） |
+| 音序解码 | `tools/sound.py` | 命令流 `$00-$5F` 音符 / `$61-$E7` 时长 / `$E8` 停 / `$F0-$F2` 循环；APU 合成 |
+
+**关键地址**：`RESET=$C070` `NMI=$D400` `IRQ=$C070`；关卡表 `$F07A`（36×91B）；音序指针表 `$ECFE`（28 项）；音符表 `$ECE6`（12 项，A1 起半音）
+
 ## COMMANDS
 ```powershell
 # inline-web-translator（无 npm、无测试，仅语法检查 + 手动验证）
@@ -102,6 +130,13 @@ npm start              # 生产：单进程单端口 :4000
 npm run backup         # 一致性快照（WAL 已合并），三写：本地 14 + D:\ompcb-backup 30 + 百度同步盘 30
 npm run backup:status  # 各目标最近时间/份数/占用
 npm run seed           # 破坏性：清空 materials 重导入
+
+# rea（需 python + pygame + numpy；先跑一次 tools/sound.py 生成音频）
+cd rea/battle-city
+python tools/d6502.py                      # → battle_city_dis.asm
+python tools/stage.py battle_city.nes 1 9  # 关卡地图 ASCII
+python tools/sound.py battle_city.nes      # → sound/*.wav
+python python/battle_city.py --rom battle_city.nes --scale 1 --top --borderless
 ```
 
 ## ANTI-PATTERNS（各项目最高频）
@@ -124,8 +159,18 @@ npm run seed           # 破坏性：清空 materials 重导入
 **xw**
 - 给 `*.stp` / `*.bin` 加通配忽略规则（交付物必须入库）；提交 `build/`、`.pio/`、日志。
 
+**rea**
+- 用 `256 + tile_id` 索引 CHR —— 那是背景表（PT1）。精灵在 PT0，直接 `tile_id × 16`。
+- 音序槽的「音符后重新排入寄存器写入队列」写成 `byte0 = hw+4`（实为 `byte0 -= 4`）→ 每个声部只响第一个音就卡死。
+- 三角通道按方波算音量（`$4008` 没有音量控制，算出 0 会静音整条贝斯）。
+- 音量包络按 60Hz 走（实机是 240Hz 帧序列器，慢 4 倍就不像拨奏）。
+- 音效用 pygame 多声道随意叠加（应走 4 声道仲裁 + 优先级抢占）。
+- 启动游戏加 `-WindowStyle Hidden`（SDL 窗口会被一起隐藏，`MainWindowHandle` 为 0）。
+
 ## NOTES
 - `xw/OpenDeskBotV2-firmware-0.0.56/` 只有固件产物（ESP32-S3，deskbot_v2 板），**没有源码**；上游是 https://github.com/tudoom/OpenDeskBotV2。全量烧录地址：`0x0 bootloader.bin` / `0x8000 partitions.bin` / `0xe000 boot_app0.bin` / `0x10000 firmware.bin`。
 - `ompcb` 单人本地工具、**无鉴权**，仅限内网，勿映射公网；备份不能与源数据同盘（见 `ompcb/docs/lessons/`）。
 - `translator` 的 `bridge.js` 以 `world: "MAIN"` 注入，需要 Chrome 111+；Ark Base URL 必须 `/api/coding/v3`。
-- 最近工作区状态（2026-10-26 起）：ompcb 备份三写落地（`0df1669` 起）；translator 停在 v1.14.4（DeepSeek 模型白名单，默认 `deepseek-flash`）。
+- `rea/battle-city` 的 ROM 是 Namco《Battle City》(1985)，NROM-128 / mapper 0，24,592 字节，md5 `cd4fe2e78df0696dbe652f02c19541a1`；**ROM 本体不入库**，克隆后自行放入并跑 `tools/` 脚本重新生成产物。
+- `rea` 的分析立场：结论要能追溯到地址或代码字节；未验证的推断必须在文档里标 ⚠️（当前音效槽 7/14/9/6/10/16/17 的语义仍是推断）。
+- 最近工作区状态（2026-10-30）：新增 `rea/`（`88fa5f3`）；ompcb 备份三写落地（`0df1669` 起）；translator 停在 v1.14.4（DeepSeek 模型白名单，默认 `deepseek-flash`）。

@@ -1,10 +1,11 @@
 # Projects
 
-个人项目仓库，目前包含三个相互独立的项目（无 workspace，各自有 `.gitignore` 与 `AGENTS.md`）：
+个人项目仓库，目前包含四个相互独立的项目（无 workspace，各自有 `.gitignore` 与 `AGENTS.md`）：
 
 - **Inline Web Translator**：Chrome 扩展，把网页正文与视频字幕逐句翻译成简体中文，支持 Google、DeepSeek、火山方舟三种引擎。
 - **OMPCB**：PCB 打样物料管理工具，BOM 清单与库存台账按制造商料号自动关联。
 - **xw**：小歪机器人 v2 的交付物仓库（ESP32-S3 固件成品 + 3D 模型），无源码。
+- **rea**：逆向分析工作区。对 NES ROM（Battle City）做完整逆向，带一个图形/地图/音频全部取自 ROM 的 Python 复刻版。
 
 ## 项目列表
 
@@ -13,6 +14,7 @@
 | [inline-web-translator](./inline-web-translator/) | Chrome Manifest V3 扩展：网页正文 + 视频字幕翻译 | 原生 JS/CSS，无构建 | 1.14.4 | [扩展 README](./inline-web-translator/README.md) |
 | [ompcb](./ompcb/) | PCB 打样物料管理：BOM 清单 + 库存台账 | Vue 3 + Element Plus + Vite 6 / Express 4 + SQLite | 1.0.0 | [项目 README](./ompcb/README.md) |
 | [xw](./xw/) | 小歪机器人 v2：固件成品 + 3D 模型（纯交付物） | ESP32-S3 固件 / STP 模型 | 固件 0.0.56 | [说明](./xw/AGENTS.md) |
+| [rea](./rea/) | 逆向分析工作区：NES ROM 逆向 + Python 复刻版 | Python + pygame | — | [逆向报告](./rea/battle-city/REPORT.md) |
 
 > 各项目的开发规则在各自目录的 `AGENTS.md`（ompcb 另有 `CLAUDE.md` 与 `docs/开发规范.md`）；仓库级交叉规则见根 [`AGENTS.md`](./AGENTS.md)。
 
@@ -40,11 +42,18 @@ projects/
 ├── xw/                        # 小歪机器人 v2：纯交付物，无源码/无构建
 │   ├── OpenDeskBotV2-firmware-0.0.56/   # 固件 bin（0.0.56）+ 烧录说明 README.txt
 │   └── *.stp                  # 摄像头卡子、打印件 3D 模型
+├── rea/                       # 逆向分析工作区
+│   └── battle-city/
+│       ├── REPORT.md          # 逆向报告：内存映射 / PPU 队列 / 分派 / 关卡格式
+│       ├── battle_city_dis.asm  # 反汇编清单（5047 条指令，PRG 62.7%）
+│       ├── tools/             # 反汇编器、关卡解码、音序解码 + APU 合成器
+│       ├── sound/             # 28 个音序 + 完整曲子 + 音序引擎文档
+│       └── python/            # 可玩复刻版（图形/地图/调色板/音频全部读自 ROM）
 ├── .gitignore                 # 只管仓库根这一层（/ 前缀锚定）
 └── README.md
 ```
 
-每个子项目维护自己的 `.gitignore`：translator 排除 `config.json` 与 `dist/`；ompcb 排除 `node_modules/`、`data/`、`dist/`、`.env`；xw 只排除构建目录与临时文件（固件 bin 与 stp 必须入库）。
+每个子项目维护自己的 `.gitignore`：translator 排除 `config.json` 与 `dist/`；ompcb 排除 `node_modules/`、`data/`、`dist/`、`.env`；xw 只排除构建目录与临时文件（固件 bin 与 stp 必须入库）；rea 排除商业 ROM 本体（`*.nes`）与 `__pycache__/`。
 
 ---
 
