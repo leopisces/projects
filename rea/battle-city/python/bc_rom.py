@@ -42,13 +42,30 @@ TANK_TYPE_BASE = {
 # 玩家坦克（$DF33 → sub_DEF0，A=$08 → tile=$F9）与 $F1 组成两组图：
 #   $F1 = 一组，$F9 = 另一组；原版玩家坦克只有 2 张（竖/横），
 #   上下朝向共用同一张。16x16 = T, T+1, T+2, T+3（左上/左下/右上/右下）
-PLAYER_TILE = 0xF1
-PLAYER_TILE_SIDE = 0xF9
+PLAYER_TILE = 0xF1          # 已废：$F1 是出生闪烁帧（$E312），不是光标
+PLAYER_TILE_SIDE = 0xF9     # 已废：$F9 是出生闪烁的另一帧（$E31C）
+
+# 坦克外观：ROM $DFE9 —— tile = ($A8 & $F0) + $B0[X] + dir*8
+# 实测 PT0：$30/$38/$40/$48 是同一辆坦克朝 下/右/上/左 的四张 16x16（布局 TL=t, BL=t+1,
+# TR=t+2, BR=t+3，完全由 $DA7B 的两步绘制确定），所以玩家的 $B0[X] = $30、$A8 = 星级×$20：
+#   0星 $30族  1星 $50族  2星 $70族  3星 $90族；敌人 $A8 = 类型字节 $80/$A0/$C0/$E0。
+PLAYER_A8 = (0x00, 0x20, 0x40, 0x60)
+# 玩家：端口方向 (UP, LEFT, DOWN, RIGHT) → ROM 方向码（$30=下 $38=右 $40=上 $48=左）
+TANK_ROM_DIR = (2, 3, 0, 1)
+# 敌人：$80=上 $88=左 $90=下 $98=右（与玩家族的排列相反，按四族像素逐张确认）
+TANK_ROM_DIR_ENEMY = (0, 1, 2, 3)
+TANK_SPRITE_BASE = 0x30
+# 菜单光标坦克：$C9E6 选单循环每 4 帧做 `$B0 ^= #$04`，经 $DFE9 得到 $00/$04 两帧
+MENU_CURSOR_TILES = (0x00, 0x04)
 
 
-def tank_tile(type_base, direction, frame=0):
-    """按 ROM $DFB6 的公式计算坦克右上 tile 编号。"""
-    return (type_base + frame + direction * 8) & 0xFF
+def tank_tile(type_byte, rom_dir, base=0x00):
+    """按 ROM $DFE9 的公式算坦克的 tile 编号（PT0）。
+
+    type_byte = $A8（玩家=星级×$20，敌=类型字节 $80/$A0/$C0/$E0）
+    base      = $B0[X]：玩家 $30（$DA73 落下），敌人 0（$E406 STA $B0,X）
+    """
+    return ((type_byte & 0xF0) + base + rom_dir * 8) & 0xFF
 
 
 EAGLE_TILES = (0xC8, 0xCA, 0xC9, 0xCB)          # TL, TR, BL, BR
@@ -89,6 +106,7 @@ BLOCK_DEF = {
     0xA: ((0x12,) * 4, 1),                # 水
     0xB: ((0x22,) * 4, 2),                # 森林
     0xC: ((0x21,) * 4, 3),                # 冰
+    0xD: ((0x00,) * 4, 0),                # 空块（$DACB[13]，"橡皮"码）
 }
 
 
