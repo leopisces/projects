@@ -34,6 +34,7 @@ MUSIC_MAP = {
     'gameover': ('jingle_gameover.wav', 0.65),
     'result':   ('jingle_result.wav',   0.65),
     'pause':    ('jingle_pause.wav',    0.70),
+    'bgm_slow': ('bgm_paused_slow.wav', 0.55),   # 暂停时引擎降速版的伴奏
 }
 
 

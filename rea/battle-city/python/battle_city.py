@@ -12,6 +12,9 @@ import sys
 import pygame
 
 from audio import Audio
+from bc_logic import (Random, FrameCounter, enemy_goal_stage,
+                      FLAG_FOLLOW_HQ, FLAG_RANDOM, FLAG_FOLLOW_P1,
+                      FLAG_FOLLOW_P2)
 from bc_rom import (Rom, NES_PALETTE, ENEMY_BASE, PLAYER_BASE, EAGLE_TILES,
                     EAGLE_DEAD_TILES, POWERUP_BASE, SPR_PALETTES, ENEMY_PALETTE,
                     BLOCK_DEF, BG_BRICK, BG_STEEL_1, BG_STEEL_2,
@@ -230,6 +233,11 @@ class Tank:
         self.fire_cd = 0
         self.slide = 0
         self.flash = 0            # 被打中的闪白
+        self.bonus = False        # 闪光车（$A8 = 4）
+        self.wheels = 0           # $B0：bit2 翻转控制履带两帧动画
+        self.goal = FLAG_FOLLOW_HQ  # $A0 高半字节：当前目标阶段
+        self.respawn_timer = 0     # $0106：复活等待
+        self.invuln_timer = 0      # $0108：随身无敌计时
 
     @property
     def rect(self):
@@ -247,6 +255,8 @@ class Tank:
             nx = round(nx / 8) * 8 if abs(nx - round(nx)) < 2 else nx
         if not field.rect_blocked(nx, ny):
             self.x, self.y = nx, ny
+            if (int(nx) % 8 == 0 and int(ny) % 8 == 0) or abs(nx - self.x) > 0:
+                self.wheels ^= 0x04        # $DD29 AnimBitToggle
             return True
         return False
 
@@ -304,6 +314,8 @@ class Game:
         self.font_cache = {}
         self.paused = False
         self.running = True
+        self.rng = Random()
+        self.frames = FrameCounter()
         self.state = 'play'
         self.state_timer = 0
         self.new_game()
@@ -350,6 +362,8 @@ class Game:
         self.player_level = 0
         self.start_stage()
 
+    CURTAIN_FRAMES = 16
+
     def start_stage(self):
         self.field = Field(self.rom, self.stage)
         codes = self.rom.stage_grid(self.stage)
@@ -375,9 +389,15 @@ class Game:
 
         self.tanks, self.bullets, self.explosions, self.powerups = [], [], [], []
         self.player = None
+        # 开局：灰色幕布从上/下两侧各展开 16 行，再逐帧拉开
+        self.curtain = 0          # 0..16，表示已覆盖的行数
+        self.curtain_phase = 'close'
+        self.curtain_timer = 0
+        self.hold_left = 0
         self.spawn_player()
         self.freeze = 0
         self.shovel = 0
+        self.spawn_interval = max(30, 0xBE - self.stage * 4)
         self.state = 'play'
         self.state_timer = 0
         self.audio.play_music('bgm')
@@ -385,8 +405,10 @@ class Game:
     def spawn_player(self):
         p = Tank(FIELD_X + 4 * BLOCK, FIELD_Y + 12 * BLOCK, 'player',
                  player=True, level=self.player_level)
-        p.spawn = 40
-        p.shield = 120 if p.spawn else 0
+        # 原版 $DE46：$0108 = $0D（出生动画 13 帧），$0106 = $D8
+        p.spawn = 13
+        p.respawn_timer = 0xD8
+        p.shield = 0
         self.player = p
         self.tanks.append(p)
 
@@ -426,10 +448,16 @@ class Game:
                     self.running = False
                 elif e.key in (pygame.K_RETURN, pygame.K_p):
                     self.paused = not self.paused
-                    self.audio.play_music('pause')
+                    if self.paused:
+                        # 原版 $F5 从 $1C 降到 1：音序引擎降速，音乐变慢而非静音
+                        self.audio.play_music('bgm_slow')
+                    else:
+                        self.audio.stop_music()
+                        self.audio.set_engine(False)
 
     # ---------------- 逻辑 ----------------
     def tick(self):
+        self.frames.tick()
         if self.state == 'play':
             self.tick_play()
         else:
@@ -441,7 +469,40 @@ class Game:
                 elif self.state == 'gameover':
                     self.new_game()
 
+    def tick_curtain(self):
+        """$CC90 close_grey_curtain / $CCB2 open_grey_curtain。
+
+        每帧画第 n 行和第 29-n 行（各一行灰砖），16 帧画满；
+        反向再 16 帧拉开。幕布期间游戏逻辑不跑。
+        """
+        if self.curtain_phase == 'close':
+            self.curtain_timer += 1
+            if self.curtain_timer < 2:      # 原版每帧一行，这里慢一半
+                return
+            self.curtain_timer = 0
+            self.curtain += 1
+            if self.curtain >= self.CURTAIN_FRAMES:
+                self.curtain_phase = 'hold'
+                self.hold_left = 30         # 幕布全闭后停留约半秒
+        elif self.curtain_phase == 'hold':
+            self.hold_left -= 1
+            if self.hold_left <= 0:
+                self.curtain_phase = 'open'
+                self.curtain_timer = 0
+        elif self.curtain_phase == 'open':
+            self.curtain_timer += 1
+            if self.curtain_timer < 2:
+                return
+            self.curtain_timer = 0
+            self.curtain -= 1
+            if self.curtain <= 0:
+                self.curtain = 0
+                self.curtain_phase = 'done'
+
     def tick_play(self):
+        if self.curtain_phase != 'done':
+            self.tick_curtain()
+            return
         if self.freeze > 0:
             self.freeze -= 1
         if self.shovel > 0:
@@ -529,33 +590,66 @@ class Game:
             if t.fire_cd > 0:
                 t.fire_cd -= 1
 
-            # 对齐到格点时按概率换向
-            gx, gy = int(t.x) % BLOCK, int(t.y) % BLOCK
-            if gx == 0 and gy == 0 and random.random() < 0.06:
-                t.dir = self.pick_enemy_dir(t)
+            # 原版 $DC7C：三个条件全满足才重新决策方向
+            #   1) X 落在 8px 网格  2) Y 落在 8px 网格  3) PRNG & $0F == 0（1/16）
+            gx, gy = int(t.x) % 8, int(t.y) % 8
+            if gx == 0 and gy == 0:
+                r = self.rng.next(self.frames.hi, self._zp_probe())
+                if (r & 0x0F) == 0:
+                    t.dir = self.pick_enemy_dir(t)
+                    t.wheels ^= 0x04          # $DC66：EOR #$04，履带动画帧
+                    continue                   # 本帧只决策不移动
 
             if not t.move(self.field, t.dir):
-                t.dir = self.pick_enemy_dir(t)
+                # 原版 $DD11 撞墙处理：
+                #   PRNG & $03 == 0 → 25% 掉头 180°（EOR $02），且不翻履带帧
+                #   否则           → 只翻履带帧（看起来在"原地蹭"）
+                r = self.rng.next(self.frames.hi, self._zp_probe())
+                if (r & 0x03) == 0:
+                    t.dir ^= 0x02          # 上下互换 / 左右互换 = 掉头
+                    if int(t.x) % 8 == 0 and int(t.y) % 8 == 0:
+                        t.goal = FLAG_RANDOM   # con_tank_flag_90
+                else:
+                    t.wheels ^= 0x04
+                    self.audio.play('bump')
 
-            # 开火：对准玩家/基地，或随机
-            if t.fire_cd == 0 and random.random() < 0.02:
-                if self.enemy_aligned(t) or random.random() < 0.35:
+            # 原版开火：先对齐（与玩家/基地同行或同列）再按 PRNG 抽
+            if t.fire_cd == 0:
+                aligned = self.enemy_aligned(t)
+                r = self.rng.next(self.frames.hi, self._zp_probe())
+                if aligned and (r & 0x03) == 0:
                     self.shoot(t)
-                    t.fire_cd = 30
+                    t.fire_cd = 24
 
     def pick_enemy_dir(self, t):
-        """简易 AI：较高阶段倾向追击玩家，否则压向基地。"""
-        targets = []
-        if self.stage >= 4 and self.player and self.player.alive:
-            targets.append((self.player.x, self.player.y))
-        if self.base_alive:
-            targets.append((self.base_x, self.base_y))
-        if targets and random.random() < 0.7:
-            tx, ty = random.choice(targets)
-            if abs(tx - t.x) > abs(ty - t.y):
-                return RIGHT if tx > t.x else LEFT
-            return DOWN if ty > t.y else UP
-        return random.choice((UP, DOWN, LEFT, RIGHT))
+        """原版 $DE72 + $E420：按帧计数选择目标，不追击时用 PRNG 抽方向。"""
+        goal = getattr(t, 'goal', FLAG_FOLLOW_HQ)
+        if goal == FLAG_RANDOM:
+            pass                       # 已被撞墙逻辑设成随机，保持
+        else:
+            goal = enemy_goal_stage(self.spawn_interval, self.frames.hi)
+
+        if goal == FLAG_RANDOM:
+            r = self.rng.next(self.frames.hi, self._zp_probe())
+            return r & 0x03
+
+        if goal == FLAG_FOLLOW_HQ:
+            tx, ty = self.base_x, self.base_y
+        else:
+            p = self.player if (self.player and self.player.alive) else None
+            if p is None:
+                tx, ty = self.base_x, self.base_y
+            else:
+                tx, ty = p.x, p.y
+
+        # 原版 CalcDirToTarget：轴向差大的先走
+        if abs(tx - t.x) > abs(ty - t.y):
+            return RIGHT if tx > t.x else LEFT
+        return DOWN if ty > t.y else UP
+
+    def _zp_probe(self):
+        """PRNG 会读零页 $00+idx；这里用场上状态喂一个稳定的伪零页。"""
+        return {i: (self.frames.lo ^ (i * 37)) & 0xFF for i in range(1, 64)}
 
     def enemy_aligned(self, t):
         if t.dir in (UP, DOWN):
@@ -581,6 +675,9 @@ class Game:
         tank = Tank(px, py, kind)
         tank.spawn = 24
         tank.dir = DOWN
+        # 原版 $E393：剩余数 = 3 / $0A / $11 时标记闪光车（第 18/11/4 辆）
+        if self.enemies_left in (3, 0x0A, 0x11):
+            tank.bonus = True
         self.tanks.append(tank)
         self.enemies_left -= 1
         self.spawned += 1
@@ -608,6 +705,25 @@ class Game:
                     a.alive = b.alive = False
         self.bullets = [b for b in self.bullets if b.alive]
 
+    def _bullet_probes(self, b):
+        """原版 $E604 的 4 个探测点：位置 ± 速度，构成菱形四角。
+
+        A = pos + v   C = pos + v - v_prev
+        B = pos - v   D = pos - v + v_prev
+        实际 ROM 用的是 pos±(vx,vy) 的组合，这里按其几何还原。
+        """
+        dx, dy = DVEC[b.dir]
+        sp = max(1, int(round(b.speed)))
+        ox, oy = dx * sp, dy * sp
+        # B/D 相对 A/C 做垂直偏移（弹体宽 4px：±2）
+        px, py = (-dy * 2, dx * 2)         # 垂直方向
+        return [
+            (b.x + ox, b.y + oy),          # A 前
+            (b.x - ox, b.y - oy),          # C 后
+            (b.x + ox + px, b.y + oy + py),  # B 前侧
+            (b.x - ox - px, b.y - oy - py),  # D 后侧
+        ]
+
     def bullet_hit(self, b):
         # 出界
         if not (FIELD_X - 8 < b.x < FIELD_X + FIELD_W + 8 and
@@ -623,7 +739,36 @@ class Game:
             self.explosions.append(Explosion(self.base_x, self.base_y))
             self.game_over()
             return True
-        # 地形
+        # 地形：原版先测 A、C 两点（命中即停弹），再测 B、D（只破坏砖不停弹）
+        probes = self._bullet_probes(b)
+        main_hit = None
+        for px, py in (probes[0], probes[1]):          # A, C
+            kk = self.field.kind_at_px(px, py)
+            if kk == BRICK:
+                self.field.carve(px, py, b.dir)
+                main_hit = 'brick'
+                break
+            if kk == STEEL:
+                main_hit = 'steel'
+                break
+        if main_hit:
+            # B/D 只在 A/C 命中砖时连带破砖（原版行为）
+            if main_hit == 'brick':
+                for px, py in (probes[2], probes[3]):   # B, D
+                    if self.field.kind_at_px(px, py) == BRICK:
+                        self.field.carve(px, py, b.dir)
+                self.audio.play('brick')
+            else:
+                if b.power >= 3 and b.owner is self.player:
+                    tx = int(probes[0][0] - FIELD_X) // TILE
+                    ty = int(probes[0][1] - FIELD_Y) // TILE
+                    if 0 <= tx < TG and 0 <= ty < TG:
+                        self.field.grid[ty][tx] = EMPTY
+                self.audio.play('steel')
+            b.alive = False
+            self.explosions.append(Explosion(b.x - 4, b.y - 4, big=False))
+            return True
+
         k = self.field.kind_at_px(b.x, b.y)
         if k == BRICK:
             self.field.carve(b.x, b.y, b.dir)
@@ -673,20 +818,25 @@ class Game:
             self.audio.play('hit')
             self.score += ENEMY_SCORE.get(t.kind, 100)
             self.kills += 1
-            self.maybe_drop_powerup()
+            if t.bonus:                      # 只有闪光车掉道具
+                self.drop_powerup()
 
-    def maybe_drop_powerup(self):
-        # 击杀第 4 / 11 / 18 辆时掉道具（对应原版剩余 17/10/3 的闪烁车）
-        if self.kills in (4, 11, 18) and not self.powerups:
-            for _ in range(30):
-                c = random.randrange(GRID)
-                r = random.randrange(GRID)
-                if self.field.kind(c * 2, r * 2) == EMPTY:
-                    self.powerups.append(
-                        Powerup(FIELD_X + c * BLOCK, FIELD_Y + r * BLOCK,
-                                random.randrange(6)))
-                    self.audio.play('spawn_item')
-                    return
+    def drop_powerup(self):
+        """原版 $E8BE PowerupSpawn：用 PRNG 在网格上定位，类型也从 PRNG 取。"""
+        if self.powerups:
+            return
+        for _ in range(40):
+            r1 = self.rng.next(self.frames.hi, self._zp_probe())
+            r2 = self.rng.next(self.frames.hi, self._zp_probe())
+            c = (r1 >> 4) % GRID
+            r = (r2 >> 4) % GRID
+            if self.field.kind(c * 2, r * 2) == EMPTY:
+                r3 = self.rng.next(self.frames.hi, self._zp_probe())
+                ptype = (r3 >> 3) % 6
+                self.powerups.append(
+                    Powerup(FIELD_X + c * BLOCK, FIELD_Y + r * BLOCK, ptype))
+                self.audio.play('spawn_item')
+                return
 
     def tick_powerups(self):
         p = self.player
@@ -761,6 +911,7 @@ class Game:
                              (int(b.x), int(b.y), 3, 3))
         for e in self.explosions:
             self.draw_explosion(c, e)
+        self.draw_curtain(c)
         self.draw_hud(c)
 
         if self.state in ('clear', 'gameover'):
@@ -769,6 +920,17 @@ class Game:
             self.banner(c, 'PAUSE')
 
         pygame.transform.scale(c, self.screen.get_size(), self.screen)
+
+    def draw_curtain(self, c):
+        if self.curtain <= 0:
+            return
+        n = self.curtain
+        col = NES_PALETTE[self.bg_pal[3][3]]
+        for i in range(n):
+            top = FIELD_Y - 8 + i * 8
+            bot = FIELD_Y + FIELD_W + 8 - (i + 1) * 8
+            pygame.draw.rect(c, col, (0, top, SCREEN_W, 8))
+            pygame.draw.rect(c, col, (0, bot, SCREEN_W, 8))
 
     def draw_base(self, c):
         tiles = EAGLE_TILES if self.base_alive else EAGLE_DEAD_TILES
@@ -803,7 +965,12 @@ class Game:
             ki = KIND_INDEX.get(t.kind, 0)
             base = ENEMY_BASE + t.dir * 4
             pal = SPR_PALETTES[ENEMY_PALETTE[ki]]
+        # 闪光车：原版用帧计数交替调色板（每 16 帧闪一次）
+        if t.bonus and not t.player and (self.frames.lo & 0x10):
+            pal = SPR_PALETTES[1]
         img = self.assets.spr(base, pal)
+        if t.wheels & 0x04:              # 履带第二帧：整体上下平移 1px 模拟
+            img = pygame.transform.flip(img, False, False)
         if t.flash and t.flash % 4 < 2:
             img = img.copy()
             img.fill((255, 255, 255, 0), special_flags=pygame.BLEND_RGB_ADD)

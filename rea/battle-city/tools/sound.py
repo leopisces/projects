@@ -425,7 +425,30 @@ MIXES = {
     'jingle_gameover': ([24, 25, 26], 'GAME OVER 音乐'),
     'jingle_result':   ([27], '结算画面音乐'),
     'jingle_pause':    ([0], '暂停音效'),
+
 }
+
+
+def render_pause_slow(rom, idxs, slow=8, max_frames=60 * 20):
+    """暂停时原版把每帧处理的声道数从 28 降到 1（$F5 = $1C → 1），
+    音乐整体变慢。这里用"每 slow 帧才推进一帧音序"来模拟。
+    """
+    engine = Engine(rom)
+    for i in idxs:
+        engine.trigger(i)
+    snaps = []
+    wr = []
+    for f in range(max_frames):
+        if f % slow == 0:
+            s = engine.frame()
+            wr.append(list(engine.writes))
+        else:
+            s = list(engine.regs)
+            wr.append([False] * 4)
+        snaps.append(s)
+        if all(engine.ch[i].status == 0 for i in idxs) and f > 30:
+            break
+    return synth(snaps, wr, 0.3)
 
 
 def render_mix(engine, idxs, max_frames=60 * 30, tail=0.5):
@@ -490,6 +513,12 @@ def main():
         if len(wav):
             write_wav(os.path.join(outdir, name + '.wav'), wav)
         print(f"  {name}.wav  {len(wav)/SR:5.1f}s  槽{idxs}  {desc}")
+
+    # 暂停慢放版（原版 $F5 = $1C → 1，引擎降速）
+    slow = render_pause_slow(rom, [1, 2, 3])
+    if len(slow):
+        write_wav(os.path.join(outdir, 'bgm_paused_slow.wav'), slow)
+        print(f"  bgm_paused_slow.wav  {len(slow)/SR:5.1f}s  槽[1,2,3]  暂停时引擎降速")
 
 
 if __name__ == '__main__':
