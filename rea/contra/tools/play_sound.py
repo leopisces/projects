@@ -31,6 +31,11 @@ from rom import Rom
 from cpu6502 import CPU6502
 import apu as apumod
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 DEFAULT_ROM = r'C:\Users\Leopisces\Desktop\魂斗罗1.nes'
 
 # bank 1 内部的入口（全部由反汇编核对过）

@@ -29,6 +29,11 @@ import wave
 
 import numpy as np
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 CPU_HZ = 1789773.0
 SR = 44100
 

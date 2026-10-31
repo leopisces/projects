@@ -1,0 +1,100 @@
+"""Contra（魂斗罗）复刻版 —— ROM 读取与图形/调色板提取层。
+
+严格从 ROM 取数据，不硬编码任何美术资源。
+
+关键地址（证据见 REPORT.md）：
+  向量        RESET=$F80D  NMI=$F889  IRQ=$F8E1
+  主循环      $F880（LDA $1A / ADC $34 / JMP $F880）
+  每帧逻辑    NMI $F889：$CC02 $CB30 $F926 $FACE → bank1 $80D5 → $C1BD $C001
+                                                        → bank2 $919F → $CB1E
+  状态机      $C001：LDA $18 / JSR $C6F2（内联表，表基址 $C013）
+              状态 0→$C023  1→$C032  2→$C0A6  3→$C0BD  4→$C102  5→$CC42  6→$FA5A
+"""
+import os
+import struct
+
+DEFAULT_ROM = r'C:\Users\Leopisces\Desktop\魂斗罗1.nes'
+
+PRG_BANK = 16384
+CHR_BANK = 8192
+
+# NES 系统调色板（2C02），RGB 值
+NES_PALETTE = [
+    (0x62, 0x62, 0x62), (0x00, 0x1F, 0xB2), (0x24, 0x04, 0xC8), (0x52, 0x00, 0xB2),
+    (0x76, 0x00, 0x76), (0x8C, 0x00, 0x34), (0x86, 0x0E, 0x00), (0x6A, 0x20, 0x00),
+    (0x42, 0x3A, 0x00), (0x0E, 0x4C, 0x00), (0x00, 0x56, 0x00), (0x00, 0x52, 0x10),
+    (0x00, 0x3E, 0x5A), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00),
+    (0xAA, 0xAA, 0xAA), (0x00, 0x62, 0xF0), (0x3C, 0x3C, 0xFC), (0x86, 0x28, 0xE4),
+    (0xB4, 0x14, 0xA6), (0xCE, 0x14, 0x5E), (0xC8, 0x32, 0x10), (0xA6, 0x4E, 0x00),
+    (0x74, 0x6A, 0x00), (0x36, 0x7E, 0x00), (0x0E, 0x8A, 0x00), (0x00, 0x86, 0x3C),
+    (0x00, 0x6E, 0x8C), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00),
+    (0xFF, 0xFF, 0xFF), (0x3C, 0xBE, 0xFC), (0x82, 0x82, 0xFC), (0xC4, 0x6E, 0xFC),
+    (0xF4, 0x5A, 0xF8), (0xFF, 0x5E, 0xB4), (0xFF, 0x7E, 0x50), (0xEE, 0x9E, 0x1C),
+    (0xC2, 0xBE, 0x00), (0x7E, 0xD2, 0x00), (0x46, 0xE2, 0x20), (0x2A, 0xDE, 0x78),
+    (0x2A, 0xC8, 0xCE), (0x3C, 0x3C, 0x3C), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00),
+    (0xFF, 0xFF, 0xFF), (0xA6, 0xE6, 0xFC), (0xC8, 0xC8, 0xFC), (0xE4, 0xBE, 0xFC),
+    (0xFC, 0xB6, 0xFC), (0xFF, 0xBE, 0xDC), (0xFF, 0xC6, 0xB4), (0xFA, 0xD2, 0x8C),
+    (0xEA, 0xE2, 0x62), (0xC6, 0xEE, 0x62), (0xA6, 0xF6, 0x7A), (0x96, 0xF2, 0xB0),
+    (0x96, 0xE6, 0xE4), (0xA6, 0xA6, 0xA6), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00),
+]
+
+
+class Rom:
+    def __init__(self, path=DEFAULT_ROM):
+        with open(path, 'rb') as f:
+            self.data = f.read()
+        if self.data[:4] != b'NES\x1a':
+            raise ValueError('不是 iNES 文件')
+        self.prg_banks = self.data[4]
+        self.chr_banks = self.data[5]
+        self.mapper = (self.data[6] >> 4) | (self.data[7] & 0xF0)
+        self.prg = self.data[16:16 + self.prg_banks * PRG_BANK]
+        co = 16 + self.prg_banks * PRG_BANK
+        self.chr = self.data[co:co + self.chr_banks * CHR_BANK]
+
+    # ---------- 向量 ----------
+    def vector(self, name):
+        off = {'NMI': -6, 'RESET': -4, 'IRQ': -2}[name]
+        start = len(self.prg) + off
+        return struct.unpack('<H', self.prg[start:start + 2])[0]
+
+    # ---------- PRG ----------
+    def bank(self, n):
+        """16KB bank（$8000-$BFFF 映射）。"""
+        return self.prg[n * PRG_BANK:(n + 1) * PRG_BANK]
+
+    def page8k(self, n):
+        return self.prg[n * 8192:(n + 1) * 8192]
+
+    def fixed8k(self):
+        """$E000-$FFFF。"""
+        return self.prg[len(self.prg) - 8192:]
+
+    def read_fixed(self, addr, n=1):
+        return self.fixed8k()[addr - 0xE000:addr - 0xE000 + n]
+
+    def read_bank(self, bank, addr, n=1):
+        off = addr - 0x8000
+        return self.bank(bank)[off:off + n]
+
+    # ---------- CHR ----------
+    def chr_page(self, n):
+        return self.chr[n * CHR_BANK:(n + 1) * CHR_BANK]
+
+    def tile_2bpp(self, chr_page, tile_idx):
+        """8×8 tile → [[0-3]×8]×8。"""
+        blk = self.chr_page(chr_page)
+        o = tile_idx * 16
+        out = []
+        for y in range(8):
+            lo = blk[o + y]
+            hi = blk[o + y + 8]
+            out.append([((lo >> (7 - x)) & 1) | (((hi >> (7 - x)) & 1) << 1)
+                        for x in range(8)])
+        return out
+
+
+def tile_to_rgb(tile, palette):
+    """tile 像素值(0-3) + 4 个调色板索引 → 8×8 RGB。"""
+    cols = [NES_PALETTE[p & 0x3F] for p in palette]
+    return [[cols[v] for v in row] for row in tile]

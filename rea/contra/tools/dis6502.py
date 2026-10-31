@@ -6,6 +6,11 @@
 """
 import io
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 
 T = {}
 def add(mn, mode, *ops):

@@ -1,4 +1,10 @@
 """完整的 6502 CPU 核心（合法指令集，无非法 opcode）。
+import sys
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 用在 contra 的声音引擎上（bank 1，$8000-$8AFF 那段代码）：
 引擎只依赖 RAM + APU 写，所以这里不模拟中断优先级、也不做 cycle 精确计时，
@@ -38,6 +44,49 @@ OP = _build_table()
 ADDR_BYTES = {'imp': 0, 'acc': 0, 'imm': 1, 'zp': 1, 'zpx': 1, 'zpy': 1,
               'abs': 2, 'absx': 2, 'absy': 2, 'ind': 2, 'indx': 1, 'indy': 1,
               'rel': 1}
+
+
+# 6502 每周期的基准表（仅取常见寻址方式；不追求 cycle-exact）
+CYCLES = {}
+for _m in ('LDA', 'LDX', 'LDY', 'AND', 'ORA', 'EOR', 'ADC', 'SBC', 'CMP',
+           'CPX', 'CPY'):
+    CYCLES[(_m, 'imm')] = 2
+    CYCLES[(_m, 'zp')] = 3
+    CYCLES[(_m, 'zpx')] = 4
+    CYCLES[(_m, 'zpy')] = 4
+    CYCLES[(_m, 'abs')] = 4
+    CYCLES[(_m, 'absx')] = 4
+    CYCLES[(_m, 'absy')] = 4
+    CYCLES[(_m, 'indx')] = 6
+    CYCLES[(_m, 'indy')] = 5
+for _m in ('STA',):
+    CYCLES[(_m, 'zp')] = 3
+    CYCLES[(_m, 'zpx')] = 4
+    CYCLES[(_m, 'zpy')] = 4
+    CYCLES[(_m, 'abs')] = 4
+    CYCLES[(_m, 'absx')] = 5
+    CYCLES[(_m, 'absy')] = 5
+    CYCLES[(_m, 'indx')] = 6
+    CYCLES[(_m, 'indy')] = 6
+CYCLES.update({
+    ('STX', 'zp'): 3, ('STX', 'zpy'): 4, ('STX', 'abs'): 4,
+    ('STY', 'zp'): 3, ('STY', 'zpx'): 4, ('STY', 'abs'): 4,
+    ('ASL', 'acc'): 2, ('LSR', 'acc'): 2, ('ROL', 'acc'): 2, ('ROR', 'acc'): 2,
+    ('ASL', 'zp'): 5, ('LSR', 'zp'): 5, ('ROL', 'zp'): 5, ('ROR', 'zp'): 5,
+    ('ASL', 'abs'): 6, ('LSR', 'abs'): 6, ('ROL', 'abs'): 6, ('ROR', 'abs'): 6,
+    ('JMP', 'abs'): 3, ('JMP', 'ind'): 5,
+    ('JSR', 'abs'): 6, ('RTS', 'imp'): 6, ('RTI', 'imp'): 6,
+    ('BPL', 'rel'): 2, ('BMI', 'rel'): 2, ('BVC', 'rel'): 2, ('BVS', 'rel'): 2,
+    ('BCC', 'rel'): 2, ('BCS', 'rel'): 2, ('BNE', 'rel'): 2, ('BEQ', 'rel'): 2,
+    ('PHP', 'imp'): 3, ('PLP', 'imp'): 4, ('PHA', 'imp'): 3, ('PLA', 'imp'): 4,
+    ('TXA', 'imp'): 2, ('TAX', 'imp'): 2, ('TYA', 'imp'): 2, ('TAY', 'imp'): 2,
+    ('TSX', 'imp'): 2, ('TXS', 'imp'): 2, ('INX', 'imp'): 2, ('INY', 'imp'): 2,
+    ('DEX', 'imp'): 2, ('DEY', 'imp'): 2, ('INC', 'zp'): 5, ('DEC', 'zp'): 5,
+    ('INC', 'abs'): 6, ('DEC', 'abs'): 6, ('INC', 'zpx'): 6, ('DEC', 'zpx'): 6,
+    ('CLC', 'imp'): 2, ('SEC', 'imp'): 2, ('CLI', 'imp'): 2, ('SEI', 'imp'): 2,
+    ('CLD', 'imp'): 2, ('SED', 'imp'): 2, ('CLV', 'imp'): 2, ('NOP', 'imp'): 2,
+    ('BRK', 'imp'): 7,
+})
 
 
 class CPU6502:
@@ -198,6 +247,34 @@ class CPU6502:
         return self._nz((v >> 1) | c)
 
     # ---------------- 单步 ----------------
+    # ---------------- 中断 ----------------
+    def _interrupt(self, vector):
+        """共同的中断入口：压 PC/P，置 I，跳到 vector。"""
+        self.push((self.pc >> 8) & 0xFF)
+        self.push(self.pc & 0xFF)
+        self.push((self.p | FU) & ~FB)
+        self.set_flag(FI, True)
+        lo = self.bus.read(vector)
+        hi = self.bus.read(vector + 1)
+        self.pc = lo | (hi << 8)
+
+    def nmi(self):
+        self._interrupt(0xFFFA)
+
+    def irq(self):
+        if self.p & FI:
+            return False
+        self._interrupt(0xFFFE)
+        return True
+
+    def reset(self):
+        lo = self.bus.read(0xFFFC)
+        hi = self.bus.read(0xFFFD)
+        self.pc = lo | (hi << 8)
+        self.sp = 0xFD
+        self.p = FU | FI
+
+    # ---------------- 执行 ----------------
     def step(self):
         pc = self.pc
         op = self.bus.read(pc)
@@ -330,6 +407,9 @@ class CPU6502:
             self.push(self.pc & 0xFF)
             self.push(self.p | FB | FU)
             self.set_flag(FI, True)
+            lo = self.bus.read(0xFFFE)
+            hi = self.bus.read(0xFFFF)
+            self.pc = lo | (hi << 8)
         # ---- 分支 ----
         elif mode == 'rel':
             off = self.fetch8()
@@ -372,7 +452,7 @@ class CPU6502:
                 self.addr_of(mode)
         else:
             raise RuntimeError('未实现指令 %s %s @ $%04X' % (mn, mode, pc))
-        return mn
+        return CYCLES.get((mn, mode), 3)
 
     # ---------------- 调用辅助 ----------------
     def call(self, addr, max_steps=200000):
@@ -384,12 +464,13 @@ class CPU6502:
         self.pc = addr
         n = 0
         while True:
-            mn = self.step()
+            pc_before = self.pc
+            self.step()
             n += 1
             if n > max_steps:
                 raise RuntimeError('call($%04X) 超过 %d 步未返回，PC=$%04X' %
                                    (addr, max_steps, self.pc))
-            if self.sp == sp0 and mn == 'RTS':
+            if self.sp == sp0 and self.bus.read(pc_before) == 0x60:
                 break
         return n
 

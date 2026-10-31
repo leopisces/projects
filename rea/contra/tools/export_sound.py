@@ -20,6 +20,11 @@ import wave
 from play_sound import Harness, analyse
 import apu as apumod
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 BANK1 = os.path.join(HERE, '..', 'temp', 'contra_bank1.bin')
 TBL = 0x8920
 BASE = 0x8000
