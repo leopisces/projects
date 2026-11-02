@@ -26,6 +26,7 @@ import time
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'contra', 'tools'))
 
 from rom import Rom
 from cpu6502 import CPU6502

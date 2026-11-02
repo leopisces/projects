@@ -1,0 +1,6 @@
+# rea/fc 下各 NES 逆向/模拟器工作区的运行期垃圾。ROM 本体（*.nes）由仓库根
+# .gitignore 的否定规则放行，这里不要重新忽略。
+*.log
+*.png
+*.wav
+__pycache__/

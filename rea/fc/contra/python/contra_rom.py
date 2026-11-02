@@ -13,7 +13,9 @@
 import os
 import struct
 
-DEFAULT_ROM = r'C:\Users\Leopisces\Desktop\魂斗罗1.nes'
+HERE = os.path.dirname(os.path.abspath(__file__))
+# 默认 ROM：仓库自带的 Contra.nes（美版原版，mapper 2 UNROM + CHR-RAM）
+DEFAULT_ROM = os.path.normpath(os.path.join(HERE, '..', 'Contra.nes'))
 
 PRG_BANK = 16384
 CHR_BANK = 8192
@@ -41,13 +43,20 @@ NES_PALETTE = [
 
 class Rom:
     def __init__(self, path=DEFAULT_ROM):
+        self.path = os.path.abspath(path)
         with open(path, 'rb') as f:
             self.data = f.read()
         if self.data[:4] != b'NES\x1a':
             raise ValueError('不是 iNES 文件')
         self.prg_banks = self.data[4]
         self.chr_banks = self.data[5]
+        self.flags6 = self.data[6]
+        self.flags7 = self.data[7]
         self.mapper = (self.data[6] >> 4) | (self.data[7] & 0xF0)
+        # iNES flags6 bit0：1 = 垂直镜像（NT0/NT1 各 1KB），0 = 水平镜像（2KB 镜像）
+        # PPU 侧约定：0=垂直 1=水平
+        self.mirroring = 0 if (self.flags6 & 1) else 1
+        self.chr_ram = (self.chr_banks == 0)      # 0 个 CHR bank = 用卡带上的 8KB CHR-RAM
         self.prg = self.data[16:16 + self.prg_banks * PRG_BANK]
         co = 16 + self.prg_banks * PRG_BANK
         self.chr = self.data[co:co + self.chr_banks * CHR_BANK]

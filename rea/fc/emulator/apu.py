@@ -54,6 +54,7 @@ DUTY = [
 
 # 帧序列器（4-step）在 APU 周期上的步进点：CPU cycle 7457/14913/22371/29829
 FRAME_STEPS = [7457, 14913, 22371, 29829]
+FRAME_LEN = 29830                              # 一整圈（4-step 序列）的 CPU 周期数
 
 
 def note_name_from_period(period, is_triangle=False):
@@ -393,14 +394,40 @@ class APU:
 
     # ---- 帧序列器 ----
     def _clock_frame(self, cycles):
-        self.frame_cycle += cycles
+        """推进 cycles 个 CPU 周期（一次给一整帧的量也可以）。
+
+        早期实现只处理“最多跨一圈”，尾部只减一个事件点位置就返回，多出的
+        周期被丢掉；一次给整帧（~29780）时包络/length 计数器就会偏慢。
+        """
         pts = FRAME_STEPS
-        while self.frame_step < 4 and self.frame_cycle >= pts[self.frame_step]:
-            self._frame_event(self.frame_step)
-            self.frame_step += 1
-        if self.frame_step >= 4:
-            self.frame_step = 0
-            self.frame_cycle -= pts[-1]
+        step = self.frame_step
+        pos = self.frame_cycle + cycles
+        while pos >= FRAME_LEN:
+            while step < 4:                    # 本圈剩下的点先跑完
+                self._frame_event(step)
+                step += 1
+            pos -= FRAME_LEN
+            step = 0
+        while step < 4 and pos >= pts[step]:
+            self._frame_event(step)
+            step += 1
+        self.frame_step = step
+        self.frame_cycle = pos
+
+    def read_status(self):
+        """$4015：各声道 length 计数器状态（bit0-3）+ DMC（bit4）。"""
+        v = 0
+        if self.p1.length:
+            v |= 0x01
+        if self.p2.length:
+            v |= 0x02
+        if self.tri.length:
+            v |= 0x04
+        if self.noi.length:
+            v |= 0x08
+        if self.dmc.remaining:
+            v |= 0x10
+        return v
 
     def _frame_event(self, step):
         if step == 0 or step == 2:
