@@ -31,12 +31,32 @@ class Ram:
     def __init__(self, data):
         self.data = bytearray(data)
         self.trace = None
+        self.zp_lo = [self._zp_read(i) for i in range(0x80)]
+        self.zp_hi = [self._zp_read(i) for i in range(0x80, 0x100)]
+        self.zpw_lo = [self._zp_write(i) for i in range(0x80)]
+        self.zpw_hi = [self._zp_write(i) for i in range(0x80, 0x100)]
 
     def read(self, addr):
         return self.data[addr & 0xFFFF]
 
     def write(self, addr, val):
         self.data[addr & 0xFFFF] = val & 0xFF
+
+    # CPU 用零页闭包表加速（见 NESBus）；这里给等价的表，保证差分自检
+    # 走的是与实机完全相同的代码路径。
+    def _zp_read(self, i):
+        data = self.data
+
+        def f():
+            return data[i]
+        return f
+
+    def _zp_write(self, i):
+        data = self.data
+
+        def f(v):
+            data[i] = v & 0xFF
+        return f
 
 
 def one(op, seed):

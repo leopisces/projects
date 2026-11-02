@@ -37,8 +37,17 @@ try:
 except Exception:
     pass
 
-from nes import (NES, BTN_A, BTN_B, BTN_SELECT, BTN_START,
-                 BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT)
+# 内核选 cynes（C++，323 fps）；没装时退回自带纯 Python 内核（35~40 fps）。
+try:
+    from nes_cynes import (CynesNES as NES, BTN_A, BTN_B, BTN_SELECT, BTN_START,
+                           BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT)
+    KERNEL = 'cynes'
+except Exception as _e:                     # 没装 cynes / DLL 加载失败
+    from nes import (NES, BTN_A, BTN_B, BTN_SELECT, BTN_START,
+                     BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT)
+    KERNEL = 'python'
+    print('cynes 内核不可用（%s），回退到纯 Python 内核' % _e)
+
 from mappers import supported
 
 try:                                    # 只 import，不 init；build_mask 里要用常量
@@ -95,12 +104,16 @@ def run_headless(rom, frames, shot=None, board=None, start=False, quiet=False):
     emu = NES(rom)
     print(emu.info())
     t0 = time.perf_counter()
+    title_frames = 0            # 标题画面等了多少帧（自动 START 用）
     for i in range(frames):
         mask = 0
         if board is not None:
             board(emu, i)
-        if start and i < 60:
-            mask |= BTN_START
+        if start:
+            # 同窗口模式：前 100 帧不按，之后每 30 帧给 4 帧高电平
+            title_frames += 1
+            if title_frames >= 100 and (title_frames % 30) < 4:
+                mask |= BTN_START
         emu.set_buttons(mask)
         emu.run_frame()
         if shot is not None and i == shot - 1:
@@ -223,6 +236,7 @@ def run_window(rom, scale=SCALE, start=False, sound=True):
     # ---- 音频：44100Hz / 16bit / 单声道，每帧 735 个采样进队列 ----
     snd = None
     mixer_channels = 1
+    gain_state = 24000.0
     if sound:
         try:
             # SDL 在这台机器上会把单声道请求退化成双声道（实测 get_init()
@@ -263,6 +277,9 @@ def run_window(rom, scale=SCALE, start=False, sound=True):
     last_mask = 0
     last_draw = 0.0
     last_drawn_frame = -1
+    frame_t0 = time.perf_counter()            # 帧号 0 的绝对时刻（固定步长用）
+    audio_t0 = frame_t0
+    fed = 0.0                                 # 已投进声卡的音频秒数
     keylog = None
     if os.environ.get('NES_KEYLOG'):
         keylog = open(os.environ['NES_KEYLOG'], 'a', buffering=1)
@@ -295,21 +312,62 @@ def run_window(rom, scale=SCALE, start=False, sound=True):
                 frame, mask, int(pygame.key.get_focused()),
                 sorted(KB.get(k, k) for k in held), sorted(KB.get(k, k) for k in wh)))
             last_mask = mask
-        if start and frame < 60:
-            mask |= BTN_START
+        if start:
+            # 标题画面要等 logo 播完才认 START：前 100 帧不按，之后每 30 帧
+            # 给 4 帧高电平（游戏里 100 帧后才响应 START，固定只按前 60 帧
+            # 会出现 --start 也不进游戏）
+            if frame >= 100 and (frame % 30) < 4:
+                mask |= BTN_START
 
         if not paused:
             emu.set_buttons(mask)
             emu.run_frame(audio=snd is not None)
-            frame += 1
             if snd is not None and emu.audio is not None:
-                x = emu.audio
-                x = x - x.mean()          # 去非线性混音的直流偏置
-                pcm = np.clip(x * 28000.0, -32768, 32767).astype('<i2')
+                # 去直流：非线性混音的输出带很重的固定偏置（Contra 实测 RMS 0.34、
+                # 均值 0.36），减去均值后剩下的只是慢变分量。只用 numpy 向量减，
+                # 不去跑一阶高通递归（每帧 735 点纯 Python 要 10 ms 以上）。
+                x = np.asarray(emu.audio, dtype=np.float32)
+                x = x - x.mean()
+                # 增益要“起伏跟随”，不能整体按峰值平推（那样等于强力压缩器，
+                # 一小段安静处会被放大到和音乐同响，听起来忽大忽小、呼吸感重）。
+                # 做三步：
+                #   1) 固定基准增益（NES 混音满量程就在 0.35 左右，×24000 够响）
+                #   2) 逐块包络 → 平滑增益：只在过载时压下来，安静时保持基准
+                #   3) 前后两帧之间做一阶平滑，避免增益跳变听成“啪”
+                base_gain = 24000.0
+                peak = float(np.abs(x).max())
+                if peak > 0.0:
+                    limit_gain = 30000.0 / peak      # 本块不削波允许的最大增益
+                    tgt = base_gain if limit_gain > base_gain else limit_gain
+                else:
+                    tgt = base_gain
+                gain = gain_state + (tgt - gain_state) * 0.35   # 一阶平滑
+                gain_state = gain
+                pcm = np.clip(x * gain, -32768, 32767).astype('<i2')
                 if mixer_channels == 2:
                     pcm = np.repeat(pcm, 2)   # 双声道：每个样本重复一次
                 snd.queue(pygame.sndarray.make_sound(
                     pcm.reshape(-1, mixer_channels)))
+
+        # 主循环的节拍：帧号驱动，不用 clock.tick(60)。
+        # clock.tick(60) 是“睡到下一个 16.7ms 边界”，实测间隔在 14~18ms 之间抖；
+        # 而音频是每帧固定 735 个采样进场，帧间隔一抖就变成“一会儿快一会儿慢”，
+        # 听着就是一顿一顿的。这里改成从 t0 起算的绝对时刻，并把 feed 补偿
+        # 用“已投入 vs 实际耗时”封顶，避免声音越跑越落后。
+        frame += 1
+        if snd is not None:
+            now = time.perf_counter()
+            fed += 1.0 / 60.0
+            lead = fed - (now - audio_t0)      # 音频领先现实多少秒
+            if lead > 0.10:                    # 超前太多：等一等，别越积越延迟
+                time.sleep(min(lead - 0.10, 0.02))
+                fed -= lead - 0.10
+        now = time.perf_counter()
+        nxt = frame_t0 + frame / 60.0          # 固定步长：下一帧的绝对时刻
+        if nxt > now:
+            time.sleep(nxt - now)
+        else:
+            frame_t0 = now - frame / 60.0      # 掉帧了，把基准往后挪，别一口气追
 
         # 跳帧保速：模拟器照旧每帧完整跑（游戏逻辑按满帧率走、声音不会变慢），
         # 只是不每帧都重画。pygame 这边要补上：CPU/PPU/APU 就要花 15-20 ms，
@@ -336,7 +394,6 @@ def run_window(rom, scale=SCALE, start=False, sound=True):
                 tip = 'WASD 方向  F 选择  H 确认  J 开火  K 跳跃  U 连发开火  P 暂停  F12 截图'
                 screen.blit(font.render(tip, True, (170, 170, 170), (0, 0, 0)), (4, y0 + 14))
             pygame.display.flip()
-        clock.tick(60)
 
     pygame.quit()
 

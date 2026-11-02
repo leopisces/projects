@@ -101,15 +101,29 @@ class CPU6502:
         self.steps = 0
         self.cycles = 0
         self.read = bus.read                     # 快速分派表里直接用它取操作数
+        self.zp_lo = bus.zp_lo                   # 零页读/写闭包（见 NESBus）
+        self.zp_hi = bus.zp_hi
+        self.zpw_lo = bus.zpw_lo
+        self.zpw_hi = bus.zpw_hi
         self.jmp_ind_bug = True
         # 统计：进入过的 ROM 地址，用来证明引擎跑通了哪几段
         self.hits = {}
 
     # ---------------- 总线快捷方式 ----------------
     def rd(self, addr):
+        # 零页是访问最密的区段（游戏变量、间接指针），走闭包表少一层判断
+        if addr < 0x100:
+            return self.zp_lo[addr]() if addr < 0x80 else self.zp_hi[addr - 0x80]()
         return self.bus.read(addr & 0xFFFF)
 
     def wr(self, addr, val):
+        if addr < 0x100:
+            val &= 0xFF
+            if addr < 0x80:
+                self.zpw_lo[addr](val)
+            else:
+                self.zpw_hi[addr - 0x80](val)
+            return
         self.bus.write(addr & 0xFFFF, val & 0xFF)
 
     # ---------------- 栈 ----------------
@@ -131,6 +145,9 @@ class CPU6502:
             self.p |= f
         else:
             self.p &= ~f & 0xFF
+
+    def i_flag_is_set(self):
+        return bool(self.p & FI)
 
     def get_flag(self, f):
         return 1 if (self.p & f) else 0

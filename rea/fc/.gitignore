@@ -4,3 +4,6 @@
 *.png
 *.wav
 __pycache__/
+
+# APU 事件表（APU 寄存器写序列的缓存，由 apu_trace.py 生成，可重新追出）
+*.aputrace
