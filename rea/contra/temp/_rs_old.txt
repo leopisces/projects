@@ -1,0 +1,63 @@
+    def render_scanline(self, y):
+        """渲染一条可见扫描线到 framebuffer。"""
+        if y >= self.HEIGHT:
+            return
+        bgpix = [None] * 256
+        if (self.mask & 0x08) or (self.mask & 0x10):
+            # 背景
+            if self.mask & 0x08:
+                self.v = (self.v & 0x7BE0) | (self.t & 0x041F)
+                self.v = (self.v & 0x0C1F) | (self.t & 0x73E0)
+                for x in range(256):
+                    bgpix[x] = self._bg_pixel(x)
+                    # coarse X 递增
+                    if (self.v & 0x1F) == 31:
+                        self.v &= ~0x1F
+                        self.v ^= 0x0400
+                    else:
+                        self.v += 1
+
+            sprites = self._sprite_pixels(y)
+
+            for x in range(256):
+                b = bgpix[x]
+                color = 0
+                if b is not None and b[1] != 0:
+                    color = self.palette[0] if b[0] == 0 else self.palette[b[0] * 4 + b[1]]
+                elif b is not None:
+                    color = self.palette[0]
+
+                # 精灵覆盖
+                for sx, pal, pat, row, prio, idx, flip_h in sprites:
+                    dx = x - sx
+                    if dx < 0 or dx >= 8:
+                        continue
+                    if flip_h:
+                        dx = 7 - dx
+                    lo = (self.cart.chr_read(pat + row) >> (7 - dx)) & 1
+                    hi = (self.cart.chr_read(pat + row + 8) >> (7 - dx)) & 1
+                    v = lo | (hi << 1)
+                    if v == 0:
+                        continue
+                    if idx == 0 and b is not None and b[1] != 0:
+                        self.sprite0_hit = True
+                        self.status |= 0x40
+                    if prio == 0 or b is None or b[1] == 0:
+                        color = self.palette[0x10 + pal * 4 + v]
+                    break
+
+                # 左侧 8 像素裁剪
+                if x < 8:
+                    if not (self.mask & 0x02):
+                        bg_cut = True
+                    else:
+                        bg_cut = False
+                    if bg_cut:
+                        color = self.palette[0]
+
+                rgb = NES_PALETTE[color & 0x3F]
+                o = (y * 256 + x) * 3
+                self.framebuffer[o] = rgb[0]
+                self.framebuffer[o + 1] = rgb[1]
+                self.framebuffer[o + 2] = rgb[2]
+

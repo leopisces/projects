@@ -1,0 +1,9 @@
+feat(rea): 复刻原版隐藏 credits 画面（$CA4F → sub_C49C）
+
+- 选单加两个隐藏计数器：$4A（按住 ↓ +$10 / → 减 1）、$4B（构造模式
+  Start 退出时 +1，开局 $C359 清零）；$4B==7 且 $4A==$74 时 Start 进 credits
+- 10 次 64 帧等待（sub_C567 = $0B & $3F）之间插 9 次 sub_D6B3，依次出
+  THIS PROGRAM WAS / WRITTEN BY / OPEN-REACH / WHO LOVES NORIKO 四行与五个点
+- 收尾 sub_C575：28 帧后 sprite $9D 每帧下落 1px，从 (120,30) 落到 y=248，
+  之后回选单继续执行选中项（$C55A RTS → $CA52）
+- REPORT 附录 A.4 记录触发条件/绘制表/地址换算/字形映射，构造模式顺延 A.5

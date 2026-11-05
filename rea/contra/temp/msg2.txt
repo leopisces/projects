@@ -1,0 +1,10 @@
+feat(rea/contra): 建立逆向工作区，定位声音引擎与命令表
+
+- REPORT.md：ROM 基线（393,232B、md5 7e9b74e6…、mapper 4 MMC3、CHR 8×32KB），
+  并注明与零售版 Contra (U)（mapper 2、262,160B）不是同一构建，地址不可对照
+- 声音引擎在 bank 1：$87A2 请求入口、$8920 三字节命令表（解出 35 个 id→数据
+  指针）、每通道 RAM 变量表、$9B21 包络表
+- tools/rom.py / tools/dis6502.py：ROM 与银行访问 + 线性 6502 反汇编
+- 下一步：无头引擎（CPU 模拟 + APU 事件捕获）导出 WAV 与音符事件
+
+chore(rea): 忽略 contra/temp 下的探针产物
