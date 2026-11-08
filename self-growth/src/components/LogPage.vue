@@ -24,6 +24,11 @@ const errorMsg = ref('')
 const toast = ref(null)
 let toastTimer = null
 
+// 输入框自动增高
+const TEXT_MAX = 1000
+// 输入框随字数自动增高（碎碎念不至于憋在 3 行里）
+const inputRows = computed(() => Math.min(10, Math.max(3, Math.ceil(text.value.length / 22) + 1)))
+
 const todayList = computed(() => {
   const g = entriesByDay.value.find((x) => x.key === dayKey())
   return g ? g.items : []
@@ -123,7 +128,9 @@ function undo() {
   clearTimeout(toastTimer)
 }
 
-onUnmounted(() => clearTimeout(toastTimer))
+onUnmounted(() => {
+  clearTimeout(toastTimer)
+})
 </script>
 
 <template>
@@ -168,13 +175,13 @@ onUnmounted(() => clearTimeout(toastTimer))
       <textarea
         v-model="text"
         class="compose-input"
-        rows="3"
-        maxlength="200"
+        :rows="inputRows"
+        :maxlength="TEXT_MAX"
         placeholder="例：跑了 5 公里，最后 1 公里差点放弃"
         :disabled="phase === 'scoring'"
       />
       <div class="compose-foot">
-        <span class="counter">{{ text.length }}/200</span>
+        <span class="counter">{{ text.length }}/{{ TEXT_MAX }}</span>
         <button class="btn primary" :disabled="!text.trim() || phase === 'scoring'" @click="run">
           {{ phase === 'scoring' ? '打分中…' : '让 AI 打分' }}
         </button>

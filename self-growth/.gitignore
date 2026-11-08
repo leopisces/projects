@@ -51,3 +51,7 @@ temp/
 
 # 注意：public/rulebook.md 是 AI 评分规则的唯一事实来源，属于源码，必须入库。
 # 不要加 *.md 之类的通配忽略规则。
+
+# 诊断日志
+tools/diag.log
+tools/server.out

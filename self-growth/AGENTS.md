@@ -95,3 +95,7 @@ cd android && ./gradlew assembleDebug      # → app/build/outputs/apk/debug/app
 - 模型会自称返回 `deepseek-flash`（服务端路由结果），不影响调用。
 - 演示数据可直接写 `localStorage['self-growth.v2']` 后刷新（Playwright 验证时用过）。
 - APK 体积：sqlite 插件自带 4 个 ABI 原生库，`android/app/build.gradle` 里 `ndk { abiFilters 'arm64-v8a','armeabi-v7a' }` 把包从 14MB 压到 8.4MB。
+- **打包必做**：`rm -rf android/app/src/main/assets/public` 后再 `npx cap sync android`。cap sync 会跳过未变化检测，实测出现过“sync 报成功但 APK 里 JS 仍是旧版”的情况（v10–v14 白折腾了好几轮）。每次打包后用 `grep -o 'assets/index-[A-Za-z0-9_-]*\.js' dist/index.html` 与 `android/app/src/main/assets/public/index.html` 比对，或直接 `python -c "import zipfile..."` 扫 APK 里的 bundle 名。
+- 不再有启动 Toast（测试提示已按用户要求移除）；`MainActivity.onCreate` 里保留 `webView.clearCache(true)` 防止旧资源被缓存。
+- 语音功能已弃用（用户机型没有可用语音引擎 + 调试成本高），`src/speech.js` 与 `@capacitor-community/speech-recognition` 已删除，录入只走打字。
+- 诊断上报：`src/diag.js` 会把 boot/tap/diag 事件 POST 到 `192.168.0.107:8787`（`node tools/diag-server.mjs`，日志写 `tools/diag.log`），仅同一 WiFi 下有效，失败静默。
