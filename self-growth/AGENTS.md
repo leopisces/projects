@@ -16,13 +16,15 @@ self-growth/
 ├── docs/体系设计.md           # 体系设计定稿：五维、打分、等级、数据模型、界面
 ├── src/
 │   ├── rulebook.js           # 拉取 rulebook.md（含离线兜底提示词）
+│   ├── local-config.js       # 软加载 config.local.js（缺失也 build 得出来）
+│   ├── config.local.js       # 本地私有配置（含 API Key，**gitignored，绝不入库**）
 │   ├── llm.js                # OpenAI 兼容打分 + 本地关键词降级 localScore()
 │   ├── store.js              # 全部状态与统计（reactive + localStorage 节流写入）
 │   ├── dimensions.js         # 五维定义、挑战等级轴、分值档位
 │   ├── App.vue               # 顶栏 + 四个 Tab（无路由）
 │   └── components/           # LogPage / HistoryPage / StatsPage / MinePage
 ├── styles.css                # 单文件样式（暗色）
-└── vite.config.js            # base: './'，产物可放任意静态子目录
+└── vite.config.js            # base: './'；/llm-proxy 反代 DeepSeek 绕 CORS（dev+preview）
 ```
 
 ## 核心链路
@@ -35,6 +37,8 @@ self-growth/
 
 ## HARD RULES
 - **打分口径只写在 `public/rulebook.md`**，不要往 `llm.js` 里塞判定规则；改口径 = 改文档。
+- **API Key 只进 `src/config.local.js`**（已被 `.gitignore` 排除）或用户在界面里填的 localStorage；**永不入库、永不写进其他源码**。需换机器时另建该文件。
+- **不要公开部署 `dist/`**：build 会把 Key 内联进产物 js。
 - **数据模型变更必须升 `STORAGE_KEY` 或写迁移**：当前键 `self-growth.v2`，`normalize()` 负责补字段。
 - **不引入后端/账号**：这是离线本地工具，加服务端会破坏定位。
 - **枚举值收紧**：`dimension` 只能五选一，`challenge` 只取 1.0 / 1.3 / 1.6，`base` 整数 0–20。
@@ -53,6 +57,8 @@ npm run preview      # 预览产物
 | 位置 | 要点 |
 |------|------|
 | `src/rulebook.js` | `loadDefaultRulebook()` 带内存缓存与 inflight 去重；`resolveRulebook(override)` 用户覆盖优先 |
+| `src/local-config.js` | 用 `import.meta.glob('./config.local.js')` 软加载私有配置，文件不存在返回 `{}` |
+| `vite.config.js` | `/llm-proxy` → `https://api.deepseek.com`，`rewrite` 掉前缀；dev 与 preview 共用同一份 `llmProxy` |
 | `src/llm.js` | `scoreWithLLM(text, settings, { rulebook })`；`parseJsonLoosely()` 容忍 ```json 围栏；失败抛 `ScoreError` |
 | `src/store.js` | `addScoredEntry()` 处理同类上限与负向；`monthStats()` 出月度账本；`dimensionTotalsBetween()` 供能力图环比 |
 | `src/components/StatsPage.vue` | 能力雷达（实线本期 / 虚线上期）+ 月度账本日历 + 14 天柱状 |
@@ -66,5 +72,6 @@ npm run preview      # 预览产物
 - 改完 `entries` 字段结构却复用旧 `STORAGE_KEY` 且不加 `normalize()` 兜底 → 老数据 NaN。
 
 ## NOTES
-- 模型走 OpenAI 兼容 `/chat/completions`，baseURL / Key / model 全在「我的」里配；浏览器直连多数厂商会被 CORS 拦，需中转或本地反代。
+- 默认模型：DeepSeek `deepseek-chat`，`apiBase = /llm-proxy/v1`（走 vite 反代）；换厂商只改 `config.local.js` 的 `apiBase` / `model`。
+- 模型会自称返回 `deepseek-flash`（服务端路由结果），不影响调用。
 - 演示数据可直接写 `localStorage['self-growth.v2']` 后刷新（Playwright 验证时用过）。

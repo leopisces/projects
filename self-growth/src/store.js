@@ -1,5 +1,6 @@
 import { computed, reactive, watch } from 'vue'
 import { DIMENSIONS } from './dimensions.js'
+import { localConfig } from './local-config.js'
 
 const STORAGE_KEY = 'self-growth.v2'
 
@@ -23,9 +24,10 @@ function defaultSettings() {
     dailySoftCap: 60, // 单日软提示线（体系设计 §3.2）
     sameKindCap: 3, // 同类单日计分次数上限
     useLLM: true,
-    apiBase: 'https://ark.cn-beijing.volces.com/api/v3',
-    apiKey: '',
-    model: '',
+    // 本地私有配置（src/config.local.js，gitignored）优先；否则留空由用户在「我的」里填
+    apiBase: localConfig.apiBase || 'https://api.deepseek.com/v1',
+    apiKey: localConfig.apiKey || '',
+    model: localConfig.model || 'deepseek-chat',
     rulebookOverride: '', // 自定义评分规则（空 = 用 public/rulebook.md）
   }
 }
@@ -37,9 +39,18 @@ function defaultState() {
 function normalize(src) {
   const base = defaultState()
   const s = src && typeof src === 'object' ? src : {}
+  const settings = { ...base.settings, ...(s.settings || {}) }
+
+  // 老数据迁移：模型没配过（或还指着方舟默认地址）时，用本地私有配置补上
+  if (localConfig.apiKey) {
+    if (!settings.apiKey) settings.apiKey = localConfig.apiKey
+    if (!settings.model) settings.model = localConfig.model
+    if (!settings.apiBase || settings.apiBase.includes('volces')) settings.apiBase = localConfig.apiBase
+  }
+
   return {
     version: 2,
-    settings: { ...base.settings, ...(s.settings || {}) },
+    settings,
     entries: (Array.isArray(s.entries) ? s.entries : []).map((e) => ({
       id: e.id || uid(),
       ts: Number(e.ts) || Date.now(),

@@ -5,7 +5,6 @@ node_modules/
 # dist/ 由 vite build 生成，发布时现场构建即可，不入库
 dist/
 .vite/
-*.local
 
 # ---- 日志 ----
 *.log
@@ -13,8 +12,14 @@ npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 
-# ---- 环境变量 / 本地配置 ----
-# API Key 只存在浏览器 localStorage，不落文件；这里防一手本地临时配置
+# ---- 本地私有配置（含 API Key，绝不入库）----
+# src/config.local.js 由本地创建，dev/build 时内联进产物：
+#   export default { apiBase: '/llm-proxy/v1', apiKey: 'sk-...', model: 'deepseek-chat' }
+# 一旦 build，Key 会出现在 dist/ 的 js 里 —— dist 不入库，也不要公开部署到公网。
+src/config.local.js
+*.local.js
+
+# ---- 环境变量 ----
 .env
 .env.*
 !.env.example
