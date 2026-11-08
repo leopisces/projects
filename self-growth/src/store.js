@@ -2,10 +2,14 @@ import { computed, reactive, watch } from 'vue'
 import { Capacitor } from '@capacitor/core'
 import { DIMENSIONS } from './dimensions.js'
 import { localConfig } from './local-config.js'
+import { saveNative, loadNative, clearNative } from './storage-native.js'
 
 // APK 里没有 vite 反代，直接走绝对地址，由 CapacitorHttp 原生通道绕开 CORS
 const NATIVE = Capacitor.isNativePlatform()
 const NATIVE_API_BASE = 'https://api.deepseek.com/v1'
+
+// 存储键（网页版 localStorage / APK 里 SQLite 的表名无关，仅作 kv 标识）
+const STORAGE_KEY = 'self-growth.v2'
 
 export function uid() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
@@ -87,21 +91,85 @@ function load() {
 
 export const state = reactive(load())
 
+/**
+ * 双写持久化：localStorage（网页）+ SQLite（APK 原生）。
+ * Android WebView 的 localStorage 不可靠（清缓存/系统回收会连数据一起没），
+ * 所以原生端以 SQLite 为准：两边都写，启动时从 SQLite 回灌。
+ */
+export const storageBackend = NATIVE ? 'SQLite + localStorage' : 'localStorage'
+
 let persistTimer = null
+
+function persistNow() {
+  clearTimeout(persistTimer)
+  persistTimer = null
+  let payload
+  try {
+    payload = JSON.stringify(state)
+  } catch (err) {
+    console.warn('[成长账本] 序列化失败', err)
+    return
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, payload)
+  } catch (err) {
+    console.warn('[成长账本] localStorage 保存失败', err)
+  }
+  if (NATIVE) {
+    let snapshot
+    try {
+      snapshot = JSON.parse(payload) // 避开 reactive proxy 直接进插件
+    } catch {
+      return
+    }
+    saveNative(snapshot).catch((err) => console.warn('[成长账本] SQLite 保存失败', err))
+  }
+}
+
 watch(
   state,
   () => {
     clearTimeout(persistTimer)
-    persistTimer = setTimeout(() => {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-      } catch (err) {
-        console.warn('[成长账本] 保存失败', err)
-      }
-    }, 120)
+    persistTimer = setTimeout(persistNow, 120)
   },
   { deep: true },
 )
+
+// 退到后台 / 关页前立即落盘，避免节流窗口内被杀进程丢数据
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', persistNow)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') persistNow()
+  })
+  if (NATIVE) window.addEventListener('pause', persistNow)
+}
+
+/**
+ * APK 启动时用 SQLite 回灌（比 WebView localStorage 可靠）。
+ * 取两边更完整的那份，避免首帧旧数据盖掉新数据；库还空就用现有数据播种。
+ */
+export async function hydrateNative() {
+  if (!NATIVE) return false
+  try {
+    const data = await loadNative()
+    if (!data) return false
+    if (!data.entries.length) {
+      persistNow() // 空库（首次升级）：把当前 localStorage 的数据写进去
+      return false
+    }
+    const next = normalize({ version: 2, settings: data.settings || {}, entries: data.entries })
+    if (next.entries.length >= state.entries.length) {
+      Object.assign(state, next)
+      persistNow()
+      return true
+    }
+    persistNow()
+    return false
+  } catch (err) {
+    console.warn('[成长账本] SQLite 读取失败', err)
+    return false
+  }
+}
 
 // ---------------- 成长值 / 等级 ----------------
 
@@ -381,5 +449,6 @@ export function importData(text) {
 
 export function resetAll() {
   localStorage.removeItem(STORAGE_KEY)
+  if (NATIVE) clearNative().catch(() => {})
   Object.assign(state, defaultState())
 }

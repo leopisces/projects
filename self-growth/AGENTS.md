@@ -5,7 +5,7 @@
 
 ## OVERVIEW
 个人向「成长记账」PWA：把每天做的事用一句话记下来，交给大模型判定**成长维度 + 分数**，累计成成长值与等级。
-纯前端、无后端、无账号，数据只在本机 `localStorage`。定位是**只记不罚**——负向行为只打标记不扣分。
+纯前端、无后端、无账号，数据只在本机：网页版 `localStorage`，APK 用 **SQLite**（双写，见 `src/storage-native.js`）。定位是**只记不罚**——负向行为只打标记不扣分。
 
 设计依据全部在 `docs/体系设计.md`，**改规则前先读它**。
 
@@ -19,7 +19,8 @@ self-growth/
 │   ├── local-config.js       # 软加载 config.local.js（缺失也 build 得出来）
 │   ├── config.local.js       # 本地私有配置（含 API Key，**gitignored，绝不入库**）
 │   ├── llm.js                # OpenAI 兼容打分 + 本地关键词降级 localScore()
-│   ├── store.js              # 全部状态与统计（reactive + localStorage 节流写入）
+│   ├── store.js              # 全部状态与统计（reactive + 双写持久化：localStorage/SQLite）
+│   ├── storage-native.js     # APK 专用 SQLite 层：建表、整表事务写入、启动回灌
 │   ├── dimensions.js         # 五维定义、挑战等级轴、分值档位
 │   ├── App.vue               # 顶栏 + 四个 Tab（无路由）
 │   └── components/           # LogPage / HistoryPage / StatsPage / MinePage
@@ -71,6 +72,7 @@ cd android && ./gradlew assembleDebug      # → app/build/outputs/apk/debug/app
 |------|------|
 | `src/rulebook.js` | `loadDefaultRulebook()` 带内存缓存与 inflight 去重；`resolveRulebook(override)` 用户覆盖优先 |
 | `src/local-config.js` | 用 `import.meta.glob('./config.local.js')` 软加载私有配置，文件不存在返回 `{}` |
+| `src/storage-native.js` | 动态 import `@capacitor-community/sqlite`（web 包不含插件）；表 `entries(id,ts,day,dimension,data)` + `kv(key,value)`，写入用 `executeSet(..., true)` 整表事务；`hydrateNative()` 启动回灌，库空时用现有数据播种 |
 | `src/store.js` 平台分支 | `Capacitor.isNativePlatform()` 为真时 `apiBase` 强制绝对地址（APK 没有 vite 反代） |
 | `capacitor.config.json` | `CapacitorHttp.enabled=true`：把 fetch/XHR 转原生请求，APK 内绕过 CORS |
 | `vite.config.js` | `/llm-proxy` → `https://api.deepseek.com`，`rewrite` 掉前缀；dev 与 preview 共用同一份 `llmProxy` |
@@ -82,6 +84,7 @@ cd android && ./gradlew assembleDebug      # → app/build/outputs/apk/debug/app
 ## ANTI-PATTERNS
 - 把评分规则写死在代码或提示词字符串里（应改 `public/rulebook.md`）。
 - 直接在组件里 `localStorage.setItem`（统一走 `store.js` 的节流 watch）。
+- 把 WebView `localStorage` 当 APK 的唯一存储（实测会丢：清缓存/系统回收连数据一起没）。
 - 负向行为扣分（体系明确「只标记不扣分」）。
 - 雷达图按绝对值缩放导致空数据全塌成一点（用 `dimMax` 且最小 0.04 兜底）。
 - 改完 `entries` 字段结构却复用旧 `STORAGE_KEY` 且不加 `normalize()` 兜底 → 老数据 NaN。
@@ -91,3 +94,4 @@ cd android && ./gradlew assembleDebug      # → app/build/outputs/apk/debug/app
 - 默认模型：DeepSeek `deepseek-chat`，`apiBase = /llm-proxy/v1`（走 vite 反代）；换厂商只改 `config.local.js` 的 `apiBase` / `model`。
 - 模型会自称返回 `deepseek-flash`（服务端路由结果），不影响调用。
 - 演示数据可直接写 `localStorage['self-growth.v2']` 后刷新（Playwright 验证时用过）。
+- APK 体积：sqlite 插件自带 4 个 ABI 原生库，`android/app/build.gradle` 里 `ndk { abiFilters 'arm64-v8a','armeabi-v7a' }` 把包从 14MB 压到 8.4MB。

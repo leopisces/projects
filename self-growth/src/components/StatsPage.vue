@@ -9,11 +9,8 @@ import {
   recentDays,
   dimensionTotals,
   dimensionTotalsBetween,
-  monthStats,
-  entriesOfDay,
   negativeStats,
   timeOf,
-  dayLabel,
 } from '../store.js'
 import { DIMENSIONS, dimById } from '../dimensions.js'
 
@@ -82,32 +79,6 @@ const labels = computed(() =>
     return { ...d, x, y }
   }),
 )
-
-// ---------------- 月度账本 ----------------
-const cursor = ref({ y: new Date().getFullYear(), m: new Date().getMonth() })
-const month = computed(() => monthStats(cursor.value.y, cursor.value.m))
-const heatMax = computed(() => Math.max(1, ...month.value.days.map((d) => d.points)))
-const picked = ref(null)
-const pickedEntries = computed(() => (picked.value ? entriesOfDay(picked.value) : []))
-
-const WEEK_LABELS = ['一', '二', '三', '四', '五', '六', '日']
-const blanks = computed(() => Array.from({ length: month.value.leading }, (_, i) => i))
-
-function shiftMonth(step) {
-  const d = new Date(cursor.value.y, cursor.value.m + step, 1)
-  cursor.value = { y: d.getFullYear(), m: d.getMonth() }
-  picked.value = null
-}
-
-function heat(d) {
-  if (!d.points) return 0
-  return 0.14 + 0.86 * (d.points / heatMax.value)
-}
-
-function pick(d) {
-  if (d.isFuture || (!d.count && !d.negative)) return
-  picked.value = picked.value === d.key ? null : d.key
-}
 
 // ---------------- 近 14 天 ----------------
 const days = computed(() => recentDays(14))
@@ -206,70 +177,6 @@ const todaySum = computed(() => dimensionTotals(1).reduce((s, d) => s + d.points
         <span class="rank-delta" :class="d.delta > 0 ? 'up' : d.delta < 0 ? 'down' : ''">
           {{ d.delta > 0 ? '+' : '' }}{{ windowDays === 0 ? '-' : d.delta }}
         </span>
-      </div>
-    </div>
-
-    <!-- 月度账本 -->
-    <div class="section-title">
-      <span>月度账本</span>
-      <span class="mini">{{ month.total }} {{ state.settings.unit }}</span>
-    </div>
-    <div class="card">
-      <div class="month-head">
-        <button class="nav-btn" @click="shiftMonth(-1)">‹</button>
-        <span class="month-title">{{ month.year }} 年 {{ month.month + 1 }} 月</span>
-        <button class="nav-btn" @click="shiftMonth(1)">›</button>
-      </div>
-
-      <div class="cal">
-        <span v-for="w in WEEK_LABELS" :key="w" class="cal-week">{{ w }}</span>
-        <span v-for="b in blanks" :key="`b${b}`" class="cal-cell blank" />
-        <button
-          v-for="d in month.days"
-          :key="d.key"
-          class="cal-cell"
-          :class="{ today: d.isToday, future: d.isFuture, picked: picked === d.key, neg: d.negative }"
-          :style="{ '--heat': heat(d) }"
-          @click="pick(d)"
-        >
-          <span class="cal-day">{{ d.day }}</span>
-          <span v-if="d.points" class="cal-points">{{ d.points }}</span>
-          <span v-if="d.negative" class="cal-neg">·</span>
-        </button>
-      </div>
-
-      <div class="sum-grid">
-        <div class="sum-cell"><b>{{ month.total }}</b><span>本月得分</span></div>
-        <div class="sum-cell"><b>{{ month.activeDays }}</b><span>记分天数</span></div>
-        <div class="sum-cell"><b>{{ month.avg }}</b><span>日均</span></div>
-        <div class="sum-cell"><b>{{ month.best ? month.best.points : 0 }}</b><span>最高一天</span></div>
-        <div class="sum-cell"><b>{{ month.goalHit }}</b><span>达标天数</span></div>
-        <div class="sum-cell"><b>{{ month.negative }}</b><span>负向次数</span></div>
-      </div>
-      <div v-if="month.best && month.best.points" class="weak-hint">
-        最高是 {{ month.best.day }} 日（{{ month.best.points }}），记分日平均 {{ month.avgActive }}。
-      </div>
-    </div>
-
-    <div v-if="picked" class="card day-detail">
-      <div class="day-head">
-        <span>{{ dayLabel(picked) }}</span>
-        <span>
-          +{{ pickedEntries.reduce((s, e) => s + (e.counted ? e.points : 0), 0) }}
-          <button class="del" @click="picked = null">✕</button>
-        </span>
-      </div>
-      <div v-for="e in pickedEntries" :key="e.id" class="entry" :class="{ faded: !e.counted || e.negative }">
-        <span class="dot" :style="{ background: dimById(e.dimension).color }" />
-        <div class="info">
-          <div class="name">{{ e.text }}</div>
-          <div class="meta">
-            {{ timeOf(e.ts) }} · {{ dimById(e.dimension).name }}
-            <span v-if="e.negative" class="tag neg">负向</span>
-            <span v-else-if="!e.counted" class="tag">不计分</span>
-          </div>
-        </div>
-        <span class="delta earn">{{ e.counted && !e.negative ? `+${e.points}` : '0' }}</span>
       </div>
     </div>
 

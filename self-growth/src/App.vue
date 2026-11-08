@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import LogPage from './components/LogPage.vue'
 import HistoryPage from './components/HistoryPage.vue'
+import CalendarPage from './components/CalendarPage.vue'
 import StatsPage from './components/StatsPage.vue'
 import MinePage from './components/MinePage.vue'
 import { state, totalValue, levelInfo, todayValue, todayCount, streak, goalPercent } from './store.js'
@@ -9,6 +10,7 @@ import { state, totalValue, levelInfo, todayValue, todayCount, streak, goalPerce
 const tabs = [
   { id: 'log', icon: '✍️', label: '记录' },
   { id: 'history', icon: '📜', label: '流水' },
+  { id: 'calendar', icon: '📅', label: '日历' },
   { id: 'stats', icon: '📈', label: '统计' },
   { id: 'mine', icon: '🙋', label: '我的' },
 ]
@@ -41,6 +43,7 @@ const tab = ref('log')
     <main class="main">
       <LogPage v-if="tab === 'log'" />
       <HistoryPage v-else-if="tab === 'history'" />
+      <CalendarPage v-else-if="tab === 'calendar'" />
       <StatsPage v-else-if="tab === 'stats'" />
       <MinePage v-else />
     </main>

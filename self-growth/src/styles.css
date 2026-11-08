@@ -326,6 +326,65 @@ button {
   overflow: hidden;
 }
 
+.goal-split {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.goal-split .in {
+  color: var(--accent);
+}
+
+.goal-split .out {
+  color: var(--red);
+}
+
+.goal-split .net {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 记账式快捷格 */
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.quick-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 11px 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s;
+}
+
+.quick-btn:active {
+  transform: scale(0.96);
+  border-color: var(--accent);
+}
+
+.quick-btn b {
+  font-size: 16px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.quick-btn span {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .goal-fill {
   height: 100%;
   background: linear-gradient(90deg, #2ea043, #56d364);
@@ -864,6 +923,179 @@ button {
 .cal-day {
   font-size: 10.5px;
   opacity: 0.75;
+}
+
+/* 热力分档：按日目标完成度，比按当月最大值稳定 */
+.cal-cell.h1 {
+  background: rgba(63, 185, 80, 0.16);
+}
+
+.cal-cell.h2 {
+  background: rgba(63, 185, 80, 0.34);
+}
+
+.cal-cell.h3 {
+  background: rgba(63, 185, 80, 0.58);
+}
+
+.cal-cell.h4 {
+  background: rgba(63, 185, 80, 0.82);
+}
+
+.cal-cell.h3 .cal-day,
+.cal-cell.h4 .cal-day {
+  color: #07220f;
+  opacity: 0.8;
+}
+
+.cal-cell.h3 .cal-points,
+.cal-cell.h4 .cal-points {
+  color: #07220f;
+}
+
+.cal-points.zero {
+  opacity: 0.22;
+  font-weight: 500;
+}
+
+.cal-cell.neg::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--red);
+}
+
+.cal-legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.cal-legend-gap {
+  flex: 1;
+}
+
+.cal-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.cal-swatch.h1 {
+  background: rgba(63, 185, 80, 0.16);
+}
+
+.cal-swatch.h2 {
+  background: rgba(63, 185, 80, 0.34);
+}
+
+.cal-swatch.h3 {
+  background: rgba(63, 185, 80, 0.58);
+}
+
+.cal-swatch.h4 {
+  background: rgba(63, 185, 80, 0.82);
+}
+
+.mini-btn {
+  padding: 3px 9px;
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+/* 账本式每日列表 */
+.ledger {
+  padding: 6px 10px;
+}
+
+.ledger-day + .ledger-day {
+  border-top: 1px solid var(--border);
+}
+
+.ledger-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 4px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ledger-row.active {
+  color: var(--accent);
+}
+
+.l-date {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 52px;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.l-date i {
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.l-meta {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.l-total {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.l-total.zero {
+  color: var(--text-dim);
+}
+
+.l-caret {
+  font-size: 14px;
+  color: var(--text-dim);
+  transition: transform 0.15s;
+}
+
+.l-caret.open {
+  transform: rotate(90deg);
+}
+
+.ledger-items {
+  padding: 2px 4px 10px;
+}
+
+.ledger-sum {
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  padding-top: 4px;
+}
+
+.ledger-sum b {
+  color: var(--accent);
+  font-size: 13px;
 }
 
 .cal-points {

@@ -37,6 +37,31 @@ const suggestions = [
   '收拾了桌面，把报销单归档了',
 ]
 
+// 记账式快捷项：一点就入账，不再走预览（维度/类别由本地规则识别）
+const presets = [
+  { text: '早起', base: 3, challenge: 1 },
+  { text: '运动 30 分钟', base: 4, challenge: 1.3 },
+  { text: '读书 30 分钟', base: 4, challenge: 1 },
+  { text: '写代码推进', base: 5, challenge: 1.3 },
+  { text: '冥想 10 分钟', base: 2, challenge: 1 },
+  { text: '整理收纳', base: 3, challenge: 1 },
+]
+
+function showToast(entry) {
+  toast.value = { entry, counted: entry.counted }
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    toast.value = null
+  }, 4500)
+}
+
+function quickRecord(p) {
+  const s = localScore(p.text)
+  const points = Math.round(Number(p.base) * Number(p.challenge))
+  const entry = addScoredEntry(p.text, { ...s, base: p.base, challenge: p.challenge, points })
+  showToast(entry)
+}
+
 function useSuggestion(s) {
   text.value = s
   run()
@@ -80,11 +105,7 @@ const previewPoints = computed(() => {
 function confirmEntry() {
   if (!draft.value) return
   const entry = addScoredEntry(text.value.trim(), { ...draft.value, points: previewPoints.value })
-  toast.value = { entry, counted: entry.counted }
-  clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => {
-    toast.value = null
-  }, 4500)
+  showToast(entry)
   draft.value = null
   text.value = ''
   phase.value = 'idle'
@@ -115,10 +136,27 @@ onUnmounted(() => clearTimeout(toastTimer))
       <div class="goal-bar">
         <div class="goal-fill" :style="{ width: `${goalPercent}%` }" />
       </div>
+      <div class="goal-split">
+        <span class="in">正向 {{ todayCount }} 笔</span>
+        <span v-if="todayNegative" class="out">负向 {{ todayNegative }} 笔</span>
+        <span class="net">净得 {{ todayValue }}</span>
+      </div>
     </div>
 
     <div v-if="overSoftCap" class="notice">
       今天已经 {{ todayValue }} 分了，超过软提示线 {{ state.settings.dailySoftCap }}。记得是真的就好，不拦你。
+    </div>
+
+    <div class="section-title">
+      <span>快捷记账</span>
+      <span class="mini">一点就入账，可撤销</span>
+    </div>
+
+    <div class="quick-grid">
+      <button v-for="p in presets" :key="p.text" class="quick-btn" @click="quickRecord(p)">
+        <b>+{{ Math.round(p.base * p.challenge) }}</b>
+        <span>{{ p.text }}</span>
+      </button>
     </div>
 
     <div class="section-title">

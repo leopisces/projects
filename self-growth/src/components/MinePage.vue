@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { state, exportData, importData, resetAll, totalValue } from '../store.js'
+import { state, exportData, importData, resetAll, totalValue, storageBackend } from '../store.js'
 import { loadDefaultRulebook, resolveRulebook, clearRulebookCache } from '../rulebook.js'
 
 const s = state.settings
@@ -167,6 +167,9 @@ onMounted(() => {
         <button class="btn ghost danger" @click="doReset">清空数据</button>
       </div>
       <input ref="fileInput" type="file" accept="application/json" hidden @change="onFile" />
+      <div class="weak-hint">
+        存储：{{ storageBackend }} · 已记录 {{ state.entries.length }} 条
+      </div>
       <div v-if="importErr" class="notice warn" style="margin-top: 10px">{{ importErr }}</div>
     </div>
 
