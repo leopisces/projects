@@ -1,10 +1,10 @@
 # PROJECT KNOWLEDGE BASE
 
-**Updated:** 2026-10-30
+**Updated:** 2026-11-08
 **Branch:** main
 
 ## OVERVIEW
-个人多项目仓库（无 workspace / 无 npm 分包）：4 个相互独立的项目放在同一 git 仓库，各自有独立 `.gitignore`、独立技术栈、独立 `AGENTS.md`。
+个人多项目仓库（无 workspace / 无 npm 分包）：5 个相互独立的项目放在同一 git 仓库，各自有独立 `.gitignore`、独立技术栈、独立 `AGENTS.md`。
 **改哪个项目先读它的 `AGENTS.md`**——根文件只给交叉规则和高频坑。
 
 | 项目 | 是什么 | 技术栈 | 版本 | 细节 |
@@ -13,6 +13,7 @@
 | `ompcb/` | PCB 打样物料管理：BOM 清单 + 库存台账，按 mfr_pn 关联 | Vue 3 + Element Plus + Vite 6 / Express 4 + better-sqlite3 | 1.0.0 | `ompcb/AGENTS.md`、`ompcb/CLAUDE.md` |
 | `xw/` | 小歪机器人 v2：ESP32-S3 固件成品 + 3D 模型（纯交付物，无源码） | 二进制交付物 | 固件 0.0.56 | `xw/AGENTS.md` |
 | `rea/` | 逆向分析工作区：NES ROM 逆向 + Python 复刻版（Battle City） | Python 3.12 + pygame + numpy，自写 6502 反汇编器 | — | `rea/battle-city/REPORT.md`、`sound/README.md` |
+| `self-growth/` | 成长账本 PWA：一句话记成长，AI 判维度打分 + 等级 | Vue 3 + Vite 6，**纯前端无后端**，数据 localStorage | 0.1.0 | `self-growth/AGENTS.md`、`self-growth/docs/体系设计.md` |
 
 ## STRUCTURE
 ```text
@@ -43,6 +44,11 @@ projects/
 │       ├── tools/           # an/chr/d6502/stage/sound 五个可复现脚本
 │       ├── sound/           # 音序解码产物：seq_00..27.wav + 完整曲子 + 引擎文档
 │       └── python/          # 可玩复刻版（图形/地图/音频全读 ROM）
+├── self-growth/             # 成长账本 PWA（纯前端）
+│   ├── public/rulebook.md   # AI 评分规则（模型提示词，唯一事实来源，必须入库）
+│   ├── docs/体系设计.md      # 五维/打分/等级/数据模型/界面 定稿
+│   ├── src/                 # store.js 全状态、llm.js 打分+降级、rulebook.js 规则加载
+│   └── src/components/      # LogPage/HistoryPage/StatsPage/MinePage（Tab 壳，无路由）
 ├── .gitignore               # 只管仓库根这一层（/ 前缀锚定）
 └── README.md                # 四项目总览
 ```
@@ -173,4 +179,4 @@ python python/battle_city.py --rom battle_city.nes --scale 1 --top --borderless
 - `translator` 的 `bridge.js` 以 `world: "MAIN"` 注入，需要 Chrome 111+；Ark Base URL 必须 `/api/coding/v3`。
 - `rea/battle-city` 的 ROM 是 Namco《Battle City》(1985)，NROM-128 / mapper 0，24,592 字节，md5 `cd4fe2e78df0696dbe652f02c19541a1`；**ROM 本体不入库**，克隆后自行放入并跑 `tools/` 脚本重新生成产物。
 - `rea` 的分析立场：结论要能追溯到地址或代码字节；未验证的推断必须在文档里标 ⚠️（当前音效槽 7/14/9/6/10/16/17 的语义仍是推断）。
-- 最近工作区状态（2026-10-30）：新增 `rea/`（`88fa5f3`）；ompcb 备份三写落地（`0df1669` 起）；translator 停在 v1.14.4（DeepSeek 模型白名单，默认 `deepseek-flash`）。
+- 最近工作区状态（2026-11-08）：新增 `self-growth/`（成长账本 PWA，规则文档外置到 `public/rulebook.md`，统计含能力雷达 + 月度账本）；此前 2026-10-30 新增 `rea/`（`88fa5f3`）；ompcb 备份三写落地（`0df1669` 起）；translator 停在 v1.14.4（DeepSeek 模型白名单，默认 `deepseek-flash`）。

@@ -1,0 +1,41 @@
+# ---- 依赖 ----
+node_modules/
+
+# ---- 构建产物 ----
+# dist/ 由 vite build 生成，发布时现场构建即可，不入库
+dist/
+.vite/
+*.local
+
+# ---- 日志 ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ---- 环境变量 / 本地配置 ----
+# API Key 只存在浏览器 localStorage，不落文件；这里防一手本地临时配置
+.env
+.env.*
+!.env.example
+
+# ---- 编辑器 / IDE ----
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ---- 临时文件 ----
+*.tmp
+*.temp
+.cache/
+coverage/
+temp/
+
+# 注意：public/rulebook.md 是 AI 评分规则的唯一事实来源，属于源码，必须入库。
+# 不要加 *.md 之类的通配忽略规则。
