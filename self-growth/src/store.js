@@ -1,8 +1,11 @@
 import { computed, reactive, watch } from 'vue'
+import { Capacitor } from '@capacitor/core'
 import { DIMENSIONS } from './dimensions.js'
 import { localConfig } from './local-config.js'
 
-const STORAGE_KEY = 'self-growth.v2'
+// APK 里没有 vite 反代，直接走绝对地址，由 CapacitorHttp 原生通道绕开 CORS
+const NATIVE = Capacitor.isNativePlatform()
+const NATIVE_API_BASE = 'https://api.deepseek.com/v1'
 
 export function uid() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
@@ -24,8 +27,8 @@ function defaultSettings() {
     dailySoftCap: 60, // 单日软提示线（体系设计 §3.2）
     sameKindCap: 3, // 同类单日计分次数上限
     useLLM: true,
-    // 本地私有配置（src/config.local.js，gitignored）优先；否则留空由用户在「我的」里填
-    apiBase: localConfig.apiBase || 'https://api.deepseek.com/v1',
+    // 浏览器走 /llm-proxy（vite 反代），APK 走绝对地址（CapacitorHttp 原生请求）
+    apiBase: NATIVE ? NATIVE_API_BASE : localConfig.apiBase || NATIVE_API_BASE,
     apiKey: localConfig.apiKey || '',
     model: localConfig.model || 'deepseek-chat',
     rulebookOverride: '', // 自定义评分规则（空 = 用 public/rulebook.md）
@@ -47,6 +50,8 @@ function normalize(src) {
     if (!settings.model) settings.model = localConfig.model
     if (!settings.apiBase || settings.apiBase.includes('volces')) settings.apiBase = localConfig.apiBase
   }
+  // APK 里不能留相对路径（没反代）
+  if (NATIVE && (!settings.apiBase || settings.apiBase.startsWith('/'))) settings.apiBase = NATIVE_API_BASE
 
   return {
     version: 2,

@@ -6,6 +6,13 @@ node_modules/
 dist/
 .vite/
 
+# ---- Android 打包产物（android/.gitignore 已覆盖大部分）----
+apk/
+*.apk
+*.aab
+build.log
+build.err.log
+
 # ---- 日志 ----
 *.log
 npm-debug.log*

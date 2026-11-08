@@ -23,6 +23,9 @@ self-growth/
 │   ├── dimensions.js         # 五维定义、挑战等级轴、分值档位
 │   ├── App.vue               # 顶栏 + 四个 Tab（无路由）
 │   └── components/           # LogPage / HistoryPage / StatsPage / MinePage
+├── android/                  # Capacitor Android 工程（com.leopisces.growth，minSdk 24 / target 36）
+├── assets/icon-only.png      # 1024 图标源（由 icon-src.html 渲染）→ npx @capacitor/assets generate
+├── capacitor.config.json     # webDir: dist；plugins.CapacitorHttp.enabled=true
 ├── styles.css                # 单文件样式（暗色）
 └── vite.config.js            # base: './'；/llm-proxy 反代 DeepSeek 绕 CORS（dev+preview）
 ```
@@ -51,13 +54,25 @@ npm install          # 依赖只有 vue + vite
 npm run dev          # 开发 :5173
 npm run build        # → dist/（含 rulebook.md 拷贝）
 npm run preview      # 预览产物
+
+# ---- 打 APK（Capacitor，本机已装 JDK21 + Android SDK 36）----
+npm run build && npx cap sync android      # 先 build 再拷进 android 工程
+cd android && ./gradlew assembleDebug      # → app/build/outputs/apk/debug/app-debug.apk
 ```
+
+环境：`JAVA_HOME=C:\Users\Leopisces\tools\jdk-21.0.13+9`、
+`ANDROID_HOME=C:\Users\Leopisces\tools\android-sdk`（platform-tools + platforms;android-36 + build-tools;36.0.0）。
+`android/local.properties` 的 `sdk.dir` **必须用正斜杠**（`C:/...`）——反斜杠会被 properties 当转义，
+报 `java.io.IOException: 文件名、目录名或卷标语法不正确`。该文件机器相关，已 gitignore。
+首次构建下载 Gradle 8.14.3（~200MB），之后增量约 1.5 分钟。
 
 ## 关键实现点
 | 位置 | 要点 |
 |------|------|
 | `src/rulebook.js` | `loadDefaultRulebook()` 带内存缓存与 inflight 去重；`resolveRulebook(override)` 用户覆盖优先 |
 | `src/local-config.js` | 用 `import.meta.glob('./config.local.js')` 软加载私有配置，文件不存在返回 `{}` |
+| `src/store.js` 平台分支 | `Capacitor.isNativePlatform()` 为真时 `apiBase` 强制绝对地址（APK 没有 vite 反代） |
+| `capacitor.config.json` | `CapacitorHttp.enabled=true`：把 fetch/XHR 转原生请求，APK 内绕过 CORS |
 | `vite.config.js` | `/llm-proxy` → `https://api.deepseek.com`，`rewrite` 掉前缀；dev 与 preview 共用同一份 `llmProxy` |
 | `src/llm.js` | `scoreWithLLM(text, settings, { rulebook })`；`parseJsonLoosely()` 容忍 ```json 围栏；失败抛 `ScoreError` |
 | `src/store.js` | `addScoredEntry()` 处理同类上限与负向；`monthStats()` 出月度账本；`dimensionTotalsBetween()` 供能力图环比 |
@@ -70,6 +85,7 @@ npm run preview      # 预览产物
 - 负向行为扣分（体系明确「只标记不扣分」）。
 - 雷达图按绝对值缩放导致空数据全塌成一点（用 `dimMax` 且最小 0.04 兜底）。
 - 改完 `entries` 字段结构却复用旧 `STORAGE_KEY` 且不加 `normalize()` 兜底 → 老数据 NaN。
+- 在 APK 里留 `/llm-proxy` 相对路径（无反代必失败，必须绝对地址 + CapacitorHttp）。
 
 ## NOTES
 - 默认模型：DeepSeek `deepseek-chat`，`apiBase = /llm-proxy/v1`（走 vite 反代）；换厂商只改 `config.local.js` 的 `apiBase` / `model`。

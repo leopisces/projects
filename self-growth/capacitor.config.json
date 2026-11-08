@@ -1,0 +1,13 @@
+{
+  "appId": "com.leopisces.growth",
+  "appName": "成长账本",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#0f1115"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

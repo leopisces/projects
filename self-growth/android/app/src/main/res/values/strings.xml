@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">成长账本</string>
+    <string name="title_activity_main">成长账本</string>
+    <string name="package_name">com.leopisces.growth</string>
+    <string name="custom_url_scheme">com.leopisces.growth</string>
+</resources>
