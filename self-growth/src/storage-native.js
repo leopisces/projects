@@ -13,7 +13,30 @@ const NATIVE = Capacitor.isNativePlatform()
 const DB_NAME = 'growth'
 
 let conn = null
+let sqliteConn = null // SQLiteConnection 实例（saveToStore/initWebStore 在它上面，不在 db 连接上）
 let opening = null
+
+/**
+ * 网页端：注册 jeep-sqlite 自定义元素（Stencil 组件 + sql.js WASM），
+ * 数据落在 localforage 的 IndexedDB store（jeepSqliteStore）。
+ *
+ * WASM 取的是 public/assets/sql-wasm.wasm（由 npm run copy-wasm 从 node_modules/sql.js/dist 拷来，
+ * 已入库，不依赖 CDN）——jeep-sqlite 的 wasmPath 是个目录，它会自己拼上 sql-wasm.wasm。
+ */
+async function mountJeep() {
+  if (document.querySelector('jeep-sqlite')) return
+  const { defineCustomElements } = await import('jeep-sqlite/loader')
+  defineCustomElements(window)
+  await customElements.whenDefined('jeep-sqlite')
+
+  const el = document.createElement('jeep-sqlite')
+  el.style.display = 'none'
+  el.setAttribute('auto-save', 'true')
+  // base: './' 时用相对当前页面解析，子路径部署也能找到
+  el.setAttribute('wasmPath', new URL('assets', location.href).href)
+  document.body.appendChild(el)
+  await customElements.whenDefined('jeep-sqlite')
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY NOT NULL, value TEXT);
@@ -25,15 +48,33 @@ CREATE TABLE IF NOT EXISTS entries (
   data TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_entries_ts ON entries(ts);
+CREATE TABLE IF NOT EXISTS photos (
+  id TEXT PRIMARY KEY NOT NULL,
+  entry_id TEXT,
+  mime TEXT,
+  w INTEGER,
+  h INTEGER,
+  ts INTEGER,
+  blob BLOB
+);
+CREATE INDEX IF NOT EXISTS idx_photos_entry ON photos(entry_id);
 `
 
 async function open() {
-  if (!NATIVE) return null
   if (conn) return conn
   if (!opening) {
     opening = (async () => {
       const { CapacitorSQLite, SQLiteConnection } = await import('@capacitor-community/sqlite')
       const sqlite = new SQLiteConnection(CapacitorSQLite)
+      sqliteConn = sqlite
+
+      if (!NATIVE) {
+        // 网页端必须先挂 jeep-sqlite 元素，并 initWebStore 才能持久化到 IndexedDB
+        await mountJeep()
+        await sqlite.initWebStore()
+      }
+
+      // native 用 1 号 schema 版本；web 的 jeep 内核不限版本号，保持同值即可
       const db = await sqlite.createConnection(DB_NAME, false, 'no-encryption', 1, false)
       await db.open()
       await db.execute(SCHEMA)
@@ -46,6 +87,16 @@ async function open() {
     })
   }
   return opening
+}
+
+/** 落盘：原生端每次 executeSet 已直写文件；web 端存在内存库，必须显式 saveToStore */
+async function flushWeb() {
+  if (NATIVE || !sqliteConn) return
+  try {
+    await sqliteConn.saveToStore(DB_NAME)
+  } catch (err) {
+    console.warn('[成长账本] web SQLite 落盘失败', err)
+  }
 }
 
 /** 原子写入：先清 entries 再整表灌入（几十~几百行，开销可忽略，省掉 diff 逻辑） */
@@ -63,6 +114,7 @@ export async function saveNative(snapshot) {
     })
   }
   await db.executeSet(set, true)
+  await flushWeb()
   return true
 }
 
@@ -97,10 +149,91 @@ export async function clearNative() {
   const db = await open()
   if (!db) return false
   await db.executeSet(
-    [{ statement: 'DELETE FROM entries', values: [] }, { statement: 'DELETE FROM kv', values: [] }],
+    [
+      { statement: 'DELETE FROM entries', values: [] },
+      { statement: 'DELETE FROM kv', values: [] },
+      { statement: 'DELETE FROM photos', values: [] },
+    ],
     true,
   )
+  await flushWeb()
   return true
 }
 
-export const nativeReady = NATIVE
+// ---------------- 图片（存 SQLite blob，不占 localStorage） ----------------
+
+/**
+ * 写入一批图片。
+ * @param {Array<{id:string, entryId:string, mime:string, w:number, h:number, ts:number, blob:Blob}>} items
+ */
+export async function savePhotosNative(items) {
+  if (!items?.length) return false
+  const db = await open()
+  if (!db) return false
+  const set = []
+  for (const it of items) {
+    // 插件在 web 端只接受 number[]/string，BLOB 用 Uint8Array 走 params 会丢，统一转 number[]
+    const bytes = new Uint8Array(await it.blob.arrayBuffer())
+    set.push({
+      statement:
+        'INSERT OR REPLACE INTO photos (id, entry_id, mime, w, h, ts, blob) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      values: [
+        String(it.id),
+        String(it.entryId || ''),
+        String(it.mime || 'image/jpeg'),
+        Number(it.w) || 0,
+        Number(it.h) || 0,
+        Number(it.ts) || Date.now(),
+        Array.from(bytes),
+      ],
+    })
+  }
+  await db.executeSet(set, true)
+  await flushWeb()
+  return true
+}
+
+/** 读单张：返回 { id, entryId, mime, w, h, blob(Blob) } 或 null */
+export async function getPhotoNative(id) {
+  const db = await open()
+  if (!db) return null
+  const rows = await db.query('SELECT entry_id, mime, w, h, blob FROM photos WHERE id = ?', [String(id)])
+  const r = rows.values?.[0]
+  if (!r) return null
+  // native 回 Uint8Array / web 回 number[]，统一成 Blob
+  const raw = r.blob
+  const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(Array.isArray(raw) ? raw : [])
+  return {
+    id: String(id),
+    entryId: r.entry_id || '',
+    mime: r.mime || 'image/jpeg',
+    w: Number(r.w) || 0,
+    h: Number(r.h) || 0,
+    blob: new Blob([bytes], { type: r.mime || 'image/jpeg' }),
+  }
+}
+
+/** 某条记录的全部图片（按 ts 升序） */
+export async function photosOfEntryNative(entryId) {
+  const db = await open()
+  if (!db) return []
+  const rows = await db.query(
+    'SELECT id FROM photos WHERE entry_id = ? ORDER BY ts ASC, id ASC',
+    [String(entryId)],
+  )
+  return (rows.values || []).map((r) => r.id)
+}
+
+export async function deletePhotosNative(ids) {
+  if (!ids?.length) return false
+  const db = await open()
+  if (!db) return false
+  await db.executeSet(
+    ids.map((id) => ({ statement: 'DELETE FROM photos WHERE id = ?', values: [String(id)] })),
+    true,
+  )
+  await flushWeb()
+  return true
+}
+
+export const nativeReady = true

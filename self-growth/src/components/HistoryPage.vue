@@ -2,9 +2,12 @@
 import { computed, ref } from 'vue'
 import { state, entriesByDay, removeEntry, dayLabel, timeOf, updateEntry } from '../store.js'
 import { DIMENSIONS, dimById } from '../dimensions.js'
+import PhotoStrip from './PhotoStrip.vue'
+import PhotoViewer from './PhotoViewer.vue'
 
 const filter = ref('all') // all | negative
 const editing = ref(null)
+const viewing = ref(null) // { ids, start }
 
 const groups = computed(() => {
   if (filter.value === 'all') return entriesByDay.value
@@ -71,6 +74,13 @@ function saveEdit() {
           </div>
           <div v-if="e.reason" class="reason">{{ e.reason }}</div>
 
+          <PhotoStrip
+            v-if="e.photoIds?.length"
+            :ids="e.photoIds"
+            :size="56"
+            @open="viewing = { ids: e.photoIds, start: $event }"
+          />
+
           <div v-if="editing && editing.id === e.id" class="edit-box">
             <div class="dim-picker">
               <button
@@ -96,5 +106,7 @@ function saveEdit() {
         <button class="del" @click="removeEntry(e.id)">✕</button>
       </div>
     </div>
+
+    <PhotoViewer v-if="viewing" :ids="viewing.ids" :start="viewing.start" @close="viewing = null" />
   </div>
 </template>

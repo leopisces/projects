@@ -33,4 +33,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 图片：<input type="file" accept="image/*"> 走系统选择器。
+         READ_MEDIA_IMAGES 是 Android 13+，READ_EXTERNAL_STORAGE 兜 12 及以下；
+         拍照（capture）由系统相机 App 完成，无需 CAMERA 权限（不直接用 Camera API）。 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 </manifest>

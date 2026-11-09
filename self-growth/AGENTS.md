@@ -20,10 +20,13 @@ self-growth/
 │   ├── config.local.js       # 本地私有配置（含 API Key，**gitignored，绝不入库**）
 │   ├── llm.js                # OpenAI 兼容打分 + 本地关键词降级 localScore()
 │   ├── store.js              # 全部状态与统计（reactive + 双写持久化：localStorage/SQLite）
-│   ├── storage-native.js     # APK 专用 SQLite 层：建表、整表事务写入、启动回灌
+│   ├── storage-native.js     # SQLite 层：建表、整表事务写入、启动回灌、图片 blob 读写
+│   ├── photos.js             # 图片：压缩 / 落库 / objectURL 引用计数
 │   ├── dimensions.js         # 五维定义、挑战等级轴、分值档位
-│   ├── App.vue               # 顶栏 + 四个 Tab（无路由）
-│   └── components/           # LogPage / HistoryPage / StatsPage / MinePage
+│   ├── App.vue               # 顶栏 + 五个 Tab（无路由）
+│   └── components/           # LogPage / HistoryPage / CalendarPage / StatsPage / MinePage
+│                             # + PhotoStrip（缩略图条）/ PhotoViewer（全屏看图）
+├── public/assets/            # sql-wasm.wasm（npm run copy-wasm 生成，gitignored）
 ├── android/                  # Capacitor Android 工程（com.leopisces.growth，minSdk 24 / target 36）
 ├── assets/icon-only.png      # 1024 图标源（由 icon-src.html 渲染）→ npx @capacitor/assets generate
 ├── capacitor.config.json     # webDir: dist；plugins.CapacitorHttp.enabled=true
@@ -51,10 +54,11 @@ self-growth/
 ## COMMANDS
 ```powershell
 cd self-growth
-npm install          # 依赖只有 vue + vite
-npm run dev          # 开发 :5173
-npm run build        # → dist/（含 rulebook.md 拷贝）
+npm install          # 依赖：vue + vite + @capacitor/* + jeep-sqlite（网页端 SQLite）
+npm run dev          # 开发 :5173（predev 自动拷 sql-wasm.wasm）
+npm run build        # → dist/（含 rulebook.md + assets/sql-wasm.wasm）
 npm run preview      # 预览产物
+npm run copy-wasm    # 手动同步 wasm（predev/prebuild 已自动跑）
 
 # ---- 打 APK（Capacitor，本机已装 JDK21 + Android SDK 36）----
 npm run build && npx cap sync android      # 先 build 再拷进 android 工程
@@ -72,7 +76,10 @@ cd android && ./gradlew assembleDebug      # → app/build/outputs/apk/debug/app
 |------|------|
 | `src/rulebook.js` | `loadDefaultRulebook()` 带内存缓存与 inflight 去重；`resolveRulebook(override)` 用户覆盖优先 |
 | `src/local-config.js` | 用 `import.meta.glob('./config.local.js')` 软加载私有配置，文件不存在返回 `{}` |
-| `src/storage-native.js` | 动态 import `@capacitor-community/sqlite`（web 包不含插件）；表 `entries(id,ts,day,dimension,data)` + `kv(key,value)`，写入用 `executeSet(..., true)` 整表事务；`hydrateNative()` 启动回灌，库空时用现有数据播种 |
+| `src/storage-native.js` | 动态 import `@capacitor-community/sqlite`；表 `entries(id,ts,day,dimension,data)` + `kv(key,value)` + `photos(id,entry_id,mime,w,h,ts,blob)`，写入用 `executeSet(..., true)` 整表事务；`hydrateNative()` 启动回灌，库空时用现有数据播种；**网页端也走这里**（挂隐藏 `<jeep-sqlite wasmPath="assets">` + `initWebStore()`，写完调 `SQLiteConnection.saveToStore()`） |
+| `src/photos.js` | `compressImage()` 长边≤1600/q0.72；`addPhotos()` 落库返回 id；`acquire()/release()` 做 objectURL 引用计数（不 release 会让 WebView OOM）；`MAX_PHOTOS_PER_ENTRY = 20` |
+| `src/components/PhotoStrip.vue` | 缩略图条，`ids` 变化时自动 acquire/release，`removable` 时带 ✕ |
+| `src/components/PhotoViewer.vue` | 全屏看图，← →/按钮翻页，Esc/✕ 关闭，卸载时统一 release |
 | `src/store.js` 平台分支 | `Capacitor.isNativePlatform()` 为真时 `apiBase` 强制绝对地址（APK 没有 vite 反代） |
 | `capacitor.config.json` | `CapacitorHttp.enabled=true`：把 fetch/XHR 转原生请求，APK 内绕过 CORS |
 | `vite.config.js` | `/llm-proxy` → `https://api.deepseek.com`，`rewrite` 掉前缀；dev 与 preview 共用同一份 `llmProxy` |
@@ -82,6 +89,9 @@ cd android && ./gradlew assembleDebug      # → app/build/outputs/apk/debug/app
 | `src/components/MinePage.vue` | 规则文档可编辑覆盖，存 `settings.rulebookOverride`，可恢复内置版 |
 
 ## ANTI-PATTERNS
+- 把图片 base64 塞进 `entries` 字段（localStorage ~5MB + 每次全量 `JSON.stringify`，必卡死）。图片一律走 `photos.js` → SQLite blob，entry 只留 `photoIds`。
+- 忘记 `release()` objectURL（一张 1600px 图解码后约 10MB 内存，滑几十条就 OOM 闪退）。
+- 升级 `sql.js` 却不升 `jeep-sqlite`（或反之）：WASM 与胶水代码的 import 数不一致，报 `LinkError: WebAssembly.instantiate(): Import #34 "a" "I": function import requires a callable`。已用 `package.json` 的 `overrides: { "sql.js": "1.11.0" }` 锁住。
 - 把评分规则写死在代码或提示词字符串里（应改 `public/rulebook.md`）。
 - 直接在组件里 `localStorage.setItem`（统一走 `store.js` 的节流 watch）。
 - 把 WebView `localStorage` 当 APK 的唯一存储（实测会丢：清缓存/系统回收连数据一起没）。

@@ -2,7 +2,8 @@ import { computed, reactive, watch } from 'vue'
 import { Capacitor } from '@capacitor/core'
 import { DIMENSIONS } from './dimensions.js'
 import { localConfig } from './local-config.js'
-import { saveNative, loadNative, clearNative } from './storage-native.js'
+import { saveNative, loadNative, clearNative, savePhotosNative, getPhotoNative } from './storage-native.js'
+import { removePhotos, releaseAll } from './photos.js'
 
 // APK 里没有 vite 反代，直接走绝对地址，由 CapacitorHttp 原生通道绕开 CORS
 const NATIVE = Capacitor.isNativePlatform()
@@ -74,6 +75,8 @@ function normalize(src) {
       reason: String(e.reason || ''),
       source: e.source === 'rule' ? 'rule' : 'llm',
       note: String(e.note || ''),
+      // 图片只存 id，实体在 SQLite photos 表（见 photos.js）；老数据补空数组
+      photoIds: (Array.isArray(e.photoIds) ? e.photoIds : []).map(String).filter(Boolean),
     })),
   }
 }
@@ -125,7 +128,6 @@ function persistNow() {
     saveNative(snapshot).catch((err) => console.warn('[成长账本] SQLite 保存失败', err))
   }
 }
-
 watch(
   state,
   () => {
@@ -145,11 +147,12 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * APK 启动时用 SQLite 回灌（比 WebView localStorage 可靠）。
+ * 启动时用 SQLite 回灌数据。
+ * - APK：原生 SQLite（比 WebView localStorage 可靠，以库为准）
+ * - 网页：jeep-sqlite（sql.js WASM + IndexedDB）
  * 取两边更完整的那份，避免首帧旧数据盖掉新数据；库还空就用现有数据播种。
  */
 export async function hydrateNative() {
-  if (!NATIVE) return false
   try {
     const data = await loadNative()
     if (!data) return false
@@ -352,8 +355,9 @@ export const negativeStats = computed(() => {
 /**
  * 写入一条打分结果（体系设计 §3.2 / §5）
  * draft 来自 scoreWithLLM 或 localScore：{dimension, kind, base, challenge, points, negative, reason, source}
+ * photoIds 为可选图片 id 数组（已存进 SQLite photos 表）
  */
-export function addScoredEntry(text, draft) {
+export function addScoredEntry(text, draft, photoIds = []) {
   const cap = Math.max(1, Number(state.settings.sameKindCap) || 3)
   const today = dayKey()
   const sameKindToday = state.entries.filter(
@@ -375,6 +379,7 @@ export function addScoredEntry(text, draft) {
     reason: draft.reason || '',
     source: draft.source || 'llm',
     note: '',
+    photoIds: (photoIds || []).map(String).filter(Boolean),
   }
   state.entries.push(entry)
   return entry
@@ -388,7 +393,10 @@ export function updateEntry(id, patch) {
 
 export function removeEntry(id) {
   const idx = state.entries.findIndex((e) => e.id === id)
-  if (idx >= 0) state.entries.splice(idx, 1)
+  if (idx < 0) return
+  const [entry] = state.entries.splice(idx, 1)
+  // 连同图片一起删，避免 photos 表变成孤儿垃圾
+  if (entry?.photoIds?.length) removePhotos(entry.photoIds).catch(() => {})
 }
 
 /** 按日分组（日期倒序，日内倒序） */
@@ -431,8 +439,52 @@ export function dayLabel(key) {
 
 // ---------------- 备份 ----------------
 
-export function exportData() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' })
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const s = String(reader.result || '')
+      resolve(s.slice(s.indexOf(',') + 1))
+    }
+    reader.onerror = () => reject(reader.error || new Error('图片读取失败'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function base64ToBlob(b64, mime) {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
+  return new Blob([bytes], { type: mime || 'image/jpeg' })
+}
+
+/**
+ * 导出备份（含图片）。
+ * 图片以 base64 内嵌到 photos 数组，换机/重装后导入能一并恢复，
+ * 代价是文件从几十 KB 涨到几 MB（base64 膨胀 33%）。
+ */
+export async function exportData() {
+  const allIds = state.entries.flatMap((e) => e.photoIds || [])
+  const photos = []
+  for (const id of allIds) {
+    const p = await getPhotoNative(id).catch(() => null)
+    if (!p) continue
+    try {
+      photos.push({
+        id,
+        entryId: p.entryId,
+        mime: p.mime,
+        w: p.w,
+        h: p.h,
+        data: await blobToBase64(p.blob),
+      })
+    } catch (err) {
+      console.warn('[成长账本] 导出图片失败，已跳过', id, err)
+    }
+  }
+
+  const payload = { ...JSON.parse(JSON.stringify(state)), photos }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -441,14 +493,33 @@ export function exportData() {
   URL.revokeObjectURL(url)
 }
 
-export function importData(text) {
+export async function importData(text) {
   const parsed = JSON.parse(text)
   if (!parsed || !Array.isArray(parsed.entries)) throw new Error('文件格式不对：缺少 entries 数组')
+
+  // 先把图片写回 SQLite，再换 state（否则首帧渲染会读不到图）
+  if (Array.isArray(parsed.photos) && parsed.photos.length) {
+    const items = parsed.photos
+      .filter((p) => p?.id && p?.data)
+      .map((p, i) => ({
+        id: String(p.id),
+        entryId: String(p.entryId || ''),
+        mime: p.mime || 'image/jpeg',
+        w: Number(p.w) || 0,
+        h: Number(p.h) || 0,
+        ts: Date.now() + i,
+        blob: base64ToBlob(p.data, p.mime),
+      }))
+    if (items.length) await savePhotosNative(items)
+  }
+
+  releaseAll()
   Object.assign(state, normalize(parsed))
 }
 
 export function resetAll() {
   localStorage.removeItem(STORAGE_KEY)
   if (NATIVE) clearNative().catch(() => {})
+  releaseAll()
   Object.assign(state, defaultState())
 }

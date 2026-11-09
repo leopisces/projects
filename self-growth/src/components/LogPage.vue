@@ -16,6 +16,9 @@ import {
 import { DIMENSIONS, dimById, CHALLENGE_LEVELS } from '../dimensions.js'
 import { scoreWithLLM, localScore, ScoreError } from '../llm.js'
 import { resolveRulebook } from '../rulebook.js'
+import { addPhotos, attachPhotos, removePhotos, MAX_PHOTOS_PER_ENTRY } from '../photos.js'
+import PhotoStrip from './PhotoStrip.vue'
+import PhotoViewer from './PhotoViewer.vue'
 
 const text = ref('')
 const phase = ref('idle') // idle | scoring | preview | saving
@@ -23,6 +26,37 @@ const draft = ref(null)
 const errorMsg = ref('')
 const toast = ref(null)
 let toastTimer = null
+
+// ---- 图片 ----
+const photoInput = ref(null)
+/** 已经压缩落库、但还没入账的图片 id（取消预览时要清理） */
+const pendingPhotos = ref([])
+const viewing = ref(null) // { ids, start }
+
+async function onPickPhotos(ev) {
+  const files = [...(ev.target.files || [])]
+  ev.target.value = '' // 允许重复选同一张
+  if (!files.length) return
+  const room = MAX_PHOTOS_PER_ENTRY - pendingPhotos.value.length
+  if (room <= 0) {
+    errorMsg.value = `一条记录最多 ${MAX_PHOTOS_PER_ENTRY} 张图`
+    return
+  }
+  const ids = await addPhotos(files.slice(0, room))
+  pendingPhotos.value = [...pendingPhotos.value, ...ids]
+}
+
+async function dropPending(i) {
+  const id = pendingPhotos.value[i]
+  pendingPhotos.value = pendingPhotos.value.filter((_, k) => k !== i)
+  if (id) await removePhotos([id])
+}
+
+async function clearPending() {
+  const ids = pendingPhotos.value
+  pendingPhotos.value = []
+  if (ids.length) await removePhotos(ids)
+}
 
 // 输入框自动增高
 const TEXT_MAX = 1000
@@ -109,14 +143,17 @@ const previewPoints = computed(() => {
 
 function confirmEntry() {
   if (!draft.value) return
-  const entry = addScoredEntry(text.value.trim(), { ...draft.value, points: previewPoints.value })
+  const entry = addScoredEntry(text.value.trim(), { ...draft.value, points: previewPoints.value }, pendingPhotos.value)
+  // 图片已随 entry 入账，不需要再删；只清本地引用
+  pendingPhotos.value = []
   showToast(entry)
   draft.value = null
   text.value = ''
   phase.value = 'idle'
 }
 
-function cancelPreview() {
+async function cancelPreview() {
+  await clearPending()
   draft.value = null
   phase.value = 'idle'
 }
@@ -130,6 +167,8 @@ function undo() {
 
 onUnmounted(() => {
   clearTimeout(toastTimer)
+  // 组件销毁时把未入账的图清掉，避免 photos 表留孤儿
+  if (pendingPhotos.value.length) removePhotos(pendingPhotos.value).catch(() => {})
 })
 </script>
 
@@ -180,7 +219,21 @@ onUnmounted(() => {
         placeholder="例：跑了 5 公里，最后 1 公里差点放弃"
         :disabled="phase === 'scoring'"
       />
+      <div v-if="pendingPhotos.length" class="compose-photos">
+        <PhotoStrip :ids="pendingPhotos" :size="58" removable @remove="dropPending" @open="viewing = { ids: pendingPhotos, start: $event }" />
+      </div>
       <div class="compose-foot">
+        <button class="photo-btn" :disabled="phase === 'scoring'" @click="photoInput?.click()">
+          📷 <span>{{ pendingPhotos.length ? `图片 ${pendingPhotos.length}` : '图片' }}</span>
+        </button>
+        <input
+          ref="photoInput"
+          type="file"
+          accept="image/*"
+          multiple
+          class="photo-input"
+          @change="onPickPhotos"
+        />
         <span class="counter">{{ text.length }}/{{ TEXT_MAX }}</span>
         <button class="btn primary" :disabled="!text.trim() || phase === 'scoring'" @click="run">
           {{ phase === 'scoring' ? '打分中…' : '让 AI 打分' }}
@@ -246,6 +299,10 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <div class="preview-photos" v-if="pendingPhotos.length">
+        <PhotoStrip :ids="pendingPhotos" :size="58" removable @remove="dropPending" @open="viewing = { ids: pendingPhotos, start: $event }" />
+      </div>
+
       <div class="kind-line">
         类别 <b>{{ draft.kind }}</b> · 今日已记 {{ todayCount }} 笔，同类别一天最多计分 {{ state.settings.sameKindCap }} 次
       </div>
@@ -274,10 +331,18 @@ onUnmounted(() => {
           <span v-else-if="!e.counted" class="tag">勤勉 · 不计分</span>
           <span v-if="e.source === 'rule'" class="tag">本地估算</span>
         </div>
+        <PhotoStrip
+          v-if="e.photoIds?.length"
+          :ids="e.photoIds"
+          :size="52"
+          @open="viewing = { ids: e.photoIds, start: $event }"
+        />
       </div>
       <span class="delta earn">{{ e.counted && !e.negative ? `+${e.points}` : '0' }}</span>
       <button class="del" @click="removeEntry(e.id)">✕</button>
     </div>
+
+    <PhotoViewer v-if="viewing" :ids="viewing.ids" :start="viewing.start" @close="viewing = null" />
 
     <transition name="fade">
       <div v-if="toast" class="toast">

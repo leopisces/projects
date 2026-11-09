@@ -2,6 +2,10 @@
 import { computed, ref } from 'vue'
 import { state, monthStats, entriesOfDay, dayLabel, timeOf, dimensionTotals, levelInfo } from '../store.js'
 import { dimById } from '../dimensions.js'
+import PhotoStrip from './PhotoStrip.vue'
+import PhotoViewer from './PhotoViewer.vue'
+
+const viewing = ref(null) // { ids, start }
 
 const cursor = ref({ y: new Date().getFullYear(), m: new Date().getMonth() })
 const month = computed(() => monthStats(cursor.value.y, cursor.value.m))
@@ -166,6 +170,12 @@ const daysInMonth = computed(() => month.value.days.length)
                 <span v-if="e.negative" class="tag neg">负向</span>
                 <span v-else-if="!e.counted" class="tag">不计分</span>
               </div>
+              <PhotoStrip
+                v-if="e.photoIds?.length"
+                :ids="e.photoIds"
+                :size="52"
+                @open="viewing = { ids: e.photoIds, start: $event }"
+              />
             </div>
             <span class="delta earn">{{ e.counted && !e.negative ? `+${e.points}` : '0' }}</span>
           </div>
@@ -176,5 +186,7 @@ const daysInMonth = computed(() => month.value.days.length)
       </div>
     </div>
     <div v-else class="weak-hint" style="padding: 0 4px">这个月还没有记录。</div>
+
+    <PhotoViewer v-if="viewing" :ids="viewing.ids" :start="viewing.start" @close="viewing = null" />
   </div>
 </template>

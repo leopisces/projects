@@ -19,6 +19,14 @@ export default defineConfig({
   // 相对路径：build 产物可以放在任意静态目录 / 子路径下直接用
   base: './',
   plugins: [vue()],
+  // jeep-sqlite 是 Stencil 组件，预构建会把它的 loader 打散；sql.js 自带 wasm 也不能被重打包
+  optimizeDeps: {
+    exclude: ['jeep-sqlite/loader', 'jeep-sqlite', '@capacitor-community/sqlite'],
+  },
+  build: {
+    // sql.js 的 wasm 约 660KB，作为单独资源输出而不内联成 base64
+    assetsInlineLimit: 0,
+  },
   server: { host: true, proxy: llmProxy },
   preview: { host: true, proxy: llmProxy },
 })

@@ -5,13 +5,19 @@
   "type": "module",
   "description": "成长账本：用记账的方式管理自我成长与奖励兑换",
   "scripts": {
+    "copy-wasm": "node -e \"const fs=require('fs');const path=require('path');const cands=['node_modules/jeep-sqlite/node_modules/sql.js/dist/sql-wasm.wasm','node_modules/sql.js/dist/sql-wasm.wasm'];const src=cands.find(p=>fs.existsSync(p));if(!src){console.error('找不到 sql-wasm.wasm，候选路径：'+cands.join(', '));process.exit(1)}fs.mkdirSync('public/assets',{recursive:true});fs.copyFileSync(src,'public/assets/sql-wasm.wasm');console.log('wasm <- '+src)\"",    "predev": "npm run copy-wasm",
     "dev": "vite",
+    "prebuild": "npm run copy-wasm",
     "build": "vite build",
     "preview": "vite preview"
+  },
+  "overrides": {
+    "sql.js": "1.11.0"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.1.1",
     "@capacitor/core": "^8.6.0",
+    "jeep-sqlite": "^2.8.0",
     "vue": "^3.5.13"
   },
   "devDependencies": {

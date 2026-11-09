@@ -6,6 +6,11 @@ node_modules/
 dist/
 .vite/
 
+# sql.js 的 wasm 由 `npm run copy-wasm`（predev/prebuild 自动跑）从
+# node_modules/jeep-sqlite/node_modules/sql.js/dist 拷到 public/assets，不入库。
+# 版本必须跟 jeep-sqlite 打包的胶水代码一致，见 package.json 的 overrides。
+public/assets/sql-wasm.wasm
+
 # ---- Android 打包产物（android/.gitignore 已覆盖大部分）----
 apk/
 *.apk
