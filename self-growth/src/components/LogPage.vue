@@ -42,10 +42,14 @@ async function onPickPhotos(ev) {
     errorMsg.value = `一条记录最多 ${MAX_PHOTOS_PER_ENTRY} 张图`
     return
   }
-  const ids = await addPhotos(files.slice(0, room))
-  pendingPhotos.value = [...pendingPhotos.value, ...ids]
+  try {
+    const ids = await addPhotos(files.slice(0, room))
+    pendingPhotos.value = [...pendingPhotos.value, ...ids]
+    if (!ids.length) errorMsg.value = '图片没能读出来，换一张试试'
+  } catch (err) {
+    errorMsg.value = err?.message || '图片添加失败'
+  }
 }
-
 async function dropPending(i) {
   const id = pendingPhotos.value[i]
   pendingPhotos.value = pendingPhotos.value.filter((_, k) => k !== i)

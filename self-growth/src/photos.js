@@ -64,6 +64,7 @@ export async function addPhotos(files, entryId = '') {
   const items = []
   const ids = []
   const ts = Date.now()
+  let lastError = null
   for (let i = 0; i < list.length; i += 1) {
     try {
       const { blob, w, h } = await compressImage(list[i])
@@ -72,9 +73,19 @@ export async function addPhotos(files, entryId = '') {
       items.push({ id, entryId, mime: 'image/jpeg', w, h, ts: ts + i, blob })
     } catch (err) {
       console.warn('[成长账本] 图片处理失败，已跳过', err)
+      lastError = err
     }
   }
-  if (items.length) await savePhotosNative(items)
+  if (items.length) {
+    try {
+      await savePhotosNative(items)
+    } catch (err) {
+      // 写库失败必须抛出去：否则上层拿到空 id 列表，界面静默地少一张图
+      console.error('[成长账本] 图片写库失败', err)
+      throw new Error('图片保存失败：' + (err?.message || err))
+    }
+  }
+  if (!items.length && lastError) throw new Error('图片处理失败：' + (lastError.message || lastError))
   return ids
 }
 

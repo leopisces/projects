@@ -160,7 +160,34 @@ export async function clearNative() {
   return true
 }
 
-// ---------------- 图片（存 SQLite blob，不占 localStorage） ----------------
+// ---------------- 图片（存 SQLite，不占 localStorage） ----------------
+
+/**
+ * Blob → base64。
+ *
+ * 为什么不用 number[]：真机实测 executeSet 传纯数字数组会报
+ *   `ExecuteSet: Cannot bind [255,216,255,224,...]`
+ * （Android 端把数组当 bindAllArgsAsStrings 的字符串参数，绑不上）。
+ * base64 字符串是插件官方支持的传输形式，写入后列类型是 TEXT，读回再解码。
+ * 分块是为了绕开 String.fromCharCode.apply 的参数个数上限（大图会栈溢出）。
+ */
+async function blobToBase64(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  let bin = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(bin)
+}
+
+/** base64 → Uint8Array（给 Blob 用） */
+function base64ToBytes(b64) {
+  const bin = atob(b64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i)
+  return out
+}
 
 /**
  * 写入一批图片。
@@ -172,8 +199,6 @@ export async function savePhotosNative(items) {
   if (!db) return false
   const set = []
   for (const it of items) {
-    // 插件在 web 端只接受 number[]/string，BLOB 用 Uint8Array 走 params 会丢，统一转 number[]
-    const bytes = new Uint8Array(await it.blob.arrayBuffer())
     set.push({
       statement:
         'INSERT OR REPLACE INTO photos (id, entry_id, mime, w, h, ts, blob) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -184,7 +209,7 @@ export async function savePhotosNative(items) {
         Number(it.w) || 0,
         Number(it.h) || 0,
         Number(it.ts) || Date.now(),
-        Array.from(bytes),
+        await blobToBase64(it.blob),
       ],
     })
   }
@@ -200,9 +225,13 @@ export async function getPhotoNative(id) {
   const rows = await db.query('SELECT entry_id, mime, w, h, blob FROM photos WHERE id = ?', [String(id)])
   const r = rows.values?.[0]
   if (!r) return null
-  // native 回 Uint8Array / web 回 number[]，统一成 Blob
+  // 写入时存的是 base64 文本；早期/原生可能直接回 Uint8Array 或 number[]，统一成 Blob
   const raw = r.blob
-  const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(Array.isArray(raw) ? raw : [])
+  let bytes
+  if (typeof raw === 'string') bytes = base64ToBytes(raw)
+  else if (raw instanceof Uint8Array) bytes = raw
+  else if (Array.isArray(raw)) bytes = new Uint8Array(raw)
+  else bytes = new Uint8Array(0)
   return {
     id: String(id),
     entryId: r.entry_id || '',
