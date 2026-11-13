@@ -2,7 +2,7 @@
 export const DIMENSIONS = [
   {
     id: 'body',
-    icon: '🫀',
+    sprite: 'body',
     name: '身体',
     color: '#f85149',
     desc: '运动、睡眠、饮食、体检、康复',
@@ -10,7 +10,7 @@ export const DIMENSIONS = [
   },
   {
     id: 'mind',
-    icon: '🧠',
+    sprite: 'mind',
     name: '心智',
     color: '#58a6ff',
     desc: '学习、阅读、思考、技能练习、理解',
@@ -18,7 +18,7 @@ export const DIMENSIONS = [
   },
   {
     id: 'heart',
-    icon: '🫶',
+    sprite: 'heart',
     name: '情绪关系',
     color: '#db61a2',
     desc: '情绪调节、家人朋友、社交、陪伴与求助',
@@ -26,7 +26,7 @@ export const DIMENSIONS = [
   },
   {
     id: 'craft',
-    icon: '🔨',
+    sprite: 'spark',
     name: '创造产出',
     color: '#3fb950',
     desc: '写代码、写作、做出作品、解决真实问题',
@@ -34,7 +34,7 @@ export const DIMENSIONS = [
   },
   {
     id: 'order',
-    icon: '🧭',
+    sprite: 'order',
     name: '秩序',
     color: '#d29922',
     desc: '环境、习惯、时间、财务、流程整理',

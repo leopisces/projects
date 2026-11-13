@@ -12,6 +12,7 @@ import {
   negativeStats,
   timeOf,
 } from '../store.js'
+import PixelIcon from './PixelIcon.vue'
 import { DIMENSIONS, dimById } from '../dimensions.js'
 
 // ---------------- 能力图 ----------------
@@ -91,27 +92,31 @@ const todaySum = computed(() => dimensionTotals(1).reduce((s, d) => s + d.points
 <template>
   <div>
     <div class="kpi-grid">
-      <div class="kpi">
+      <div class="kpi k-yellow">
+        <PixelIcon name="gem" :size="13" class="kpi-ic" />
         <div class="kpi-num">{{ totalValue }}</div>
         <div class="kpi-label">累计 {{ state.settings.unit }}</div>
       </div>
-      <div class="kpi">
+      <div class="kpi k-purple">
+        <PixelIcon name="trophy" :size="13" class="kpi-ic" />
         <div class="kpi-num">Lv.{{ levelInfo.level }}</div>
         <div class="kpi-label">距下一级 {{ levelInfo.remain }}</div>
       </div>
-      <div class="kpi">
+      <div class="kpi k-orange">
+        <PixelIcon name="flame" :size="13" class="kpi-ic" />
         <div class="kpi-num">{{ streak }}</div>
         <div class="kpi-label">连续天数</div>
       </div>
-      <div class="kpi">
+      <div class="kpi k-blue">
+        <PixelIcon name="calendar" :size="13" class="kpi-ic" />
         <div class="kpi-num">{{ activeDays }}</div>
         <div class="kpi-label">总记录天数</div>
       </div>
     </div>
 
     <!-- 能力图 -->
-    <div class="section-title">
-      <span>能力图</span>
+    <div class="section-title k-purple">
+      <span class="tt"><PixelIcon name="target" :size="12" class="ic" />能力图</span>
       <span class="mini">实线本期 · 虚线上期</span>
     </div>
     <div class="seg">
@@ -169,7 +174,7 @@ const todaySum = computed(() => dimensionTotals(1).reduce((s, d) => s + d.points
 
     <div class="card">
       <div v-for="d in compareRows" :key="d.id" class="rank">
-        <span class="rank-name">{{ d.icon }} {{ d.name }}</span>
+        <span class="rank-name"><PixelIcon :name="d.sprite" :size="12" :style="{ color: d.color }" />{{ d.name }}</span>
         <div class="rank-bar">
           <div class="rank-fill" :style="{ width: `${(d.points / dimMax) * 100}%`, background: d.color }" />
         </div>
@@ -180,7 +185,7 @@ const todaySum = computed(() => dimensionTotals(1).reduce((s, d) => s + d.points
       </div>
     </div>
 
-    <div class="section-title"><span>近 14 天</span></div>
+    <div class="section-title k-green"><span class="tt"><PixelIcon name="stats" :size="12" class="ic" />近 14 天</span></div>
     <div class="card">
       <div class="bars">
         <div v-for="d in days" :key="d.key" class="bar-col">
@@ -201,7 +206,7 @@ const todaySum = computed(() => dimensionTotals(1).reduce((s, d) => s + d.points
       </div>
     </div>
 
-    <div class="section-title"><span>等级进度</span></div>
+    <div class="section-title k-yellow"><span class="tt"><PixelIcon name="trophy" :size="12" class="ic" />等级进度</span></div>
     <div class="card">
       <div class="level-line">
         <span>Lv.{{ levelInfo.level }}</span>
@@ -214,7 +219,7 @@ const todaySum = computed(() => dimensionTotals(1).reduce((s, d) => s + d.points
       <div class="weak-hint">递增曲线：第 n 级需要 100 × (n−1) × n ÷ 2 累计值，越往后越慢。</div>
     </div>
 
-    <div class="section-title"><span>负向标记</span></div>
+    <div class="section-title k-red"><span class="tt"><PixelIcon name="bolt" :size="12" class="ic" />负向标记</span></div>
     <div class="card">
       <div class="sum-row">
         <span>近 30 天 <b>{{ negativeStats.recent }}</b></span>

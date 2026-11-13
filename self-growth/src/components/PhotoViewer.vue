@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { acquire, release } from '../photos.js'
+import PixelIcon from './PixelIcon.vue'
 
 /**
  * 全屏看图：点遮罩 / ✕ 关闭，左右按钮或 ← → 键翻页。
@@ -67,12 +68,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="photo-viewer" @click.self="emit('close')">
-    <button class="pv-close" @click="emit('close')">✕</button>
+    <button class="pv-close" @click="emit('close')"><PixelIcon name="close" :size="14" /></button>
     <div class="pv-count" v-if="ids.length > 1">{{ index + 1 }} / {{ ids.length }}</div>
 
-    <button v-if="hasPrev" class="pv-nav prev" @click.stop="step(-1)">‹</button>
+    <button v-if="hasPrev" class="pv-nav prev" @click.stop="step(-1)"><PixelIcon name="left" :size="20" /></button>
     <img v-if="urls[current]" class="pv-img" :src="urls[current]" alt="" @click.stop />
     <div v-else class="pv-loading">加载中…</div>
-    <button v-if="hasNext" class="pv-nav next" @click.stop="step(1)">›</button>
+    <button v-if="hasNext" class="pv-nav next" @click.stop="step(1)"><PixelIcon name="right" :size="20" /></button>
   </div>
 </template>

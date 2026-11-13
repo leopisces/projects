@@ -1,6 +1,7 @@
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { acquire, release } from '../photos.js'
+import PixelIcon from './PixelIcon.vue'
 
 const props = defineProps({
   ids: { type: Array, default: () => [] },
@@ -42,7 +43,7 @@ onBeforeUnmount(() => {
     <div v-for="(id, i) in ids" :key="id" class="photo-thumb" :style="{ width: `${size}px`, height: `${size}px` }">
       <img v-if="urls[id]" :src="urls[id]" alt="" @click="emit('open', i)" />
       <div v-else class="photo-loading" />
-      <button v-if="removable" class="photo-x" @click.stop="emit('remove', i)">✕</button>
+      <button v-if="removable" class="photo-x" @click.stop="emit('remove', i)"><PixelIcon name="close" :size="8" /></button>
     </div>
   </div>
 </template>

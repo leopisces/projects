@@ -4,6 +4,7 @@ import { state, monthStats, entriesOfDay, dayLabel, timeOf, dimensionTotals, lev
 import { dimById } from '../dimensions.js'
 import PhotoStrip from './PhotoStrip.vue'
 import PhotoViewer from './PhotoViewer.vue'
+import PixelIcon from './PixelIcon.vue'
 
 const viewing = ref(null) // { ids, start }
 
@@ -82,16 +83,16 @@ const daysInMonth = computed(() => month.value.days.length)
 
 <template>
   <div>
-    <div class="section-title">
-      <span>每日得分</span>
+    <div class="section-title k-green">
+      <span class="tt"><PixelIcon name="calendar" :size="12" class="ic" />每日得分</span>
       <span class="mini">Lv.{{ levelInfo.level }} · 近一年 {{ yearTotal }}</span>
     </div>
 
     <div class="card">
       <div class="month-head">
-        <button class="nav-btn" @click="shiftMonth(-1)">‹</button>
+        <button class="nav-btn" @click="shiftMonth(-1)"><PixelIcon name="left" :size="12" /></button>
         <span class="month-title">{{ month.year }} 年 {{ month.month + 1 }} 月</span>
-        <button class="nav-btn" @click="shiftMonth(1)">›</button>
+        <button class="nav-btn" @click="shiftMonth(1)"><PixelIcon name="right" :size="12" /></button>
         <button v-if="!isThisMonth" class="btn ghost mini-btn" @click="goToday">回到本月</button>
       </div>
 
@@ -118,7 +119,7 @@ const daysInMonth = computed(() => month.value.days.length)
         <i v-for="n in 4" :key="n" class="cal-swatch" :class="`h${n}`" />
         <span class="mini">多</span>
         <span class="cal-legend-gap" />
-        <span class="mini">目标 {{ goal }}/天</span>
+        <span class="mini"><PixelIcon name="target" :size="10" class="ic-inline" />目标 {{ goal }}/天</span>
       </div>
 
       <div class="sum-grid">
@@ -138,8 +139,8 @@ const daysInMonth = computed(() => month.value.days.length)
       </div>
     </div>
 
-    <div class="section-title">
-      <span>{{ month.month + 1 }} 月账本</span>
+    <div class="section-title k-yellow">
+      <span class="tt"><PixelIcon name="book" :size="12" class="ic" />{{ month.month + 1 }} 月账本</span>
       <span class="mini">{{ ledger.length }} 天有记录</span>
     </div>
 

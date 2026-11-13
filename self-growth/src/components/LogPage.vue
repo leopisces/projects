@@ -19,6 +19,7 @@ import { resolveRulebook } from '../rulebook.js'
 import { addPhotos, attachPhotos, removePhotos, MAX_PHOTOS_PER_ENTRY } from '../photos.js'
 import PhotoStrip from './PhotoStrip.vue'
 import PhotoViewer from './PhotoViewer.vue'
+import PixelIcon from './PixelIcon.vue'
 
 const text = ref('')
 const phase = ref('idle') // idle | scoring | preview | saving
@@ -82,12 +83,12 @@ const suggestions = [
 
 // 记账式快捷项：一点就入账，不再走预览（维度/类别由本地规则识别）
 const presets = [
-  { text: '早起', base: 3, challenge: 1 },
-  { text: '运动 30 分钟', base: 4, challenge: 1.3 },
-  { text: '读书 30 分钟', base: 4, challenge: 1 },
-  { text: '写代码推进', base: 5, challenge: 1.3 },
-  { text: '冥想 10 分钟', base: 2, challenge: 1 },
-  { text: '整理收纳', base: 3, challenge: 1 },
+  { text: '早起', base: 3, challenge: 1, sprite: 'clock', k: '#ffd24a' },
+  { text: '运动 30 分钟', base: 4, challenge: 1.3, sprite: 'body', k: '#f85149' },
+  { text: '读书 30 分钟', base: 4, challenge: 1, sprite: 'book', k: '#58a6ff' },
+  { text: '写代码推进', base: 5, challenge: 1.3, sprite: 'code', k: '#3fb950' },
+  { text: '冥想 10 分钟', base: 2, challenge: 1, sprite: 'heart', k: '#db61a2' },
+  { text: '整理收纳', base: 3, challenge: 1, sprite: 'box', k: '#d29922' },
 ]
 
 function showToast(entry) {
@@ -197,20 +198,27 @@ onUnmounted(() => {
       今天已经 {{ todayValue }} 分了，超过软提示线 {{ state.settings.dailySoftCap }}。记得是真的就好，不拦你。
     </div>
 
-    <div class="section-title">
-      <span>快捷记账</span>
+    <div class="section-title k-yellow">
+      <span class="tt"><PixelIcon name="bolt" :size="12" class="ic" />快捷记账</span>
       <span class="mini">一点就入账，可撤销</span>
     </div>
 
     <div class="quick-grid">
-      <button v-for="p in presets" :key="p.text" class="quick-btn" @click="quickRecord(p)">
+      <button
+        v-for="p in presets"
+        :key="p.text"
+        class="quick-btn"
+        :style="{ '--k': p.k }"
+        @click="quickRecord(p)"
+      >
+        <PixelIcon :name="p.sprite" :size="14" class="q-ic" />
         <b>+{{ Math.round(p.base * p.challenge) }}</b>
         <span>{{ p.text }}</span>
       </button>
     </div>
 
-    <div class="section-title">
-      <span>刚刚做了什么？</span>
+    <div class="section-title k-blue">
+      <span class="tt"><PixelIcon name="log" :size="12" class="ic" />刚刚做了什么？</span>
       <span class="mini">一句话就够</span>
     </div>
 
@@ -228,7 +236,7 @@ onUnmounted(() => {
       </div>
       <div class="compose-foot">
         <button class="photo-btn" :disabled="phase === 'scoring'" @click="photoInput?.click()">
-          📷 <span>{{ pendingPhotos.length ? `图片 ${pendingPhotos.length}` : '图片' }}</span>
+          <PixelIcon name="camera" :size="14" /> <span>{{ pendingPhotos.length ? `图片 ${pendingPhotos.length}` : '图片' }}</span>
         </button>
         <input
           ref="photoInput"
@@ -240,6 +248,7 @@ onUnmounted(() => {
         />
         <span class="counter">{{ text.length }}/{{ TEXT_MAX }}</span>
         <button class="btn primary" :disabled="!text.trim() || phase === 'scoring'" @click="run">
+          <PixelIcon name="spark" :size="12" />
           {{ phase === 'scoring' ? '打分中…' : '让 AI 打分' }}
         </button>
       </div>
@@ -278,7 +287,7 @@ onUnmounted(() => {
             :style="{ '--dim': d.color }"
             @click="setDimension(d.id)"
           >
-            <span>{{ d.icon }}</span>{{ d.name }}
+            <PixelIcon :name="d.sprite" :size="12" :style="{ color: d.color }" />{{ d.name }}
           </button>
         </div>
       </div>
@@ -318,8 +327,8 @@ onUnmounted(() => {
     </div>
 
     <!-- 今日记录 -->
-    <div class="section-title">
-      <span>今天的记录</span>
+    <div class="section-title k-green">
+      <span class="tt"><PixelIcon name="check" :size="12" class="ic" />今天的记录</span>
       <span class="mini">{{ todayCount }} 笔<span v-if="todayNegative"> · 负向 {{ todayNegative }}</span></span>
     </div>
 
@@ -343,7 +352,7 @@ onUnmounted(() => {
         />
       </div>
       <span class="delta earn">{{ e.counted && !e.negative ? `+${e.points}` : '0' }}</span>
-      <button class="del" @click="removeEntry(e.id)">✕</button>
+      <button class="del" @click="removeEntry(e.id)"><PixelIcon name="trash" :size="11" /></button>
     </div>
 
     <PhotoViewer v-if="viewing" :ids="viewing.ids" :start="viewing.start" @close="viewing = null" />

@@ -4,6 +4,7 @@ import { state, entriesByDay, removeEntry, dayLabel, timeOf, updateEntry } from 
 import { DIMENSIONS, dimById } from '../dimensions.js'
 import PhotoStrip from './PhotoStrip.vue'
 import PhotoViewer from './PhotoViewer.vue'
+import PixelIcon from './PixelIcon.vue'
 
 const filter = ref('all') // all | negative
 const editing = ref(null)
@@ -39,15 +40,17 @@ function saveEdit() {
 
 <template>
   <div>
-    <div class="section-title">
-      <span>流水</span>
+    <div class="section-title k-blue">
+      <span class="tt"><PixelIcon name="history" :size="12" class="ic" />流水</span>
       <span class="mini">共 {{ total }} 条</span>
     </div>
 
     <div class="seg">
-      <button class="seg-btn" :class="{ active: filter === 'all' }" @click="filter = 'all'">全部</button>
+      <button class="seg-btn" :class="{ active: filter === 'all' }" @click="filter = 'all'">
+        <PixelIcon name="history" :size="11" />全部
+      </button>
       <button class="seg-btn" :class="{ active: filter === 'negative' }" @click="filter = 'negative'">
-        只看负向
+        <PixelIcon name="bolt" :size="11" />只看负向
       </button>
     </div>
 
@@ -55,7 +58,7 @@ function saveEdit() {
 
     <div v-for="g in groups" :key="g.key" class="day-group">
       <div class="day-head">
-        <span>{{ dayLabel(g.key) }}</span>
+        <span class="tt"><PixelIcon name="calendar" :size="11" class="ic" />{{ dayLabel(g.key) }}</span>
         <span>
           +{{ g.points }}
           <span v-if="g.negative" class="tag neg" style="margin-left: 6px">负向 {{ g.negative }}</span>
@@ -91,7 +94,7 @@ function saveEdit() {
                 :style="{ '--dim': d.color }"
                 @click="editing.dimension = d.id"
               >
-                {{ d.icon }}{{ d.name }}
+                <PixelIcon :name="d.sprite" :size="12" :style="{ color: d.color }" />{{ d.name }}
               </button>
             </div>
             <div class="field" style="margin-top: 8px">
@@ -102,8 +105,8 @@ function saveEdit() {
           </div>
         </div>
         <span class="delta earn">{{ e.counted && !e.negative ? `+${e.points}` : '0' }}</span>
-        <button class="del" @click="startEdit(e)">✎</button>
-        <button class="del" @click="removeEntry(e.id)">✕</button>
+        <button class="del" @click="startEdit(e)"><PixelIcon name="log" :size="11" /></button>
+        <button class="del" @click="removeEntry(e.id)"><PixelIcon name="trash" :size="11" /></button>
       </div>
     </div>
 

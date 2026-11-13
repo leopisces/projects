@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { state, exportData, importData, resetAll, totalValue, storageBackend } from '../store.js'
 import { loadDefaultRulebook, resolveRulebook, clearRulebookCache } from '../rulebook.js'
+import PixelIcon from './PixelIcon.vue'
 
 const s = state.settings
 const showKey = ref(false)
@@ -78,7 +79,10 @@ onMounted(() => {
 
 <template>
   <div>
-    <div class="section-title"><span>评分规则</span><span class="mini">AI 打分依据</span></div>
+    <div class="section-title k-blue">
+      <span class="tt"><PixelIcon name="book" :size="12" class="ic" />评分规则</span>
+      <span class="mini">AI 打分依据</span>
+    </div>
     <div class="card">
       <div class="rule-status">
         <span class="badge" :class="hasOverride ? 'custom' : 'default'">
@@ -90,7 +94,9 @@ onMounted(() => {
         这份文档就是模型的系统提示词。想改口径（比如某类事该归哪一维、多少分），直接改文字，不用动代码。
       </div>
       <div class="field" style="margin-top: 10px">
-        <button class="btn ghost" @click="openRule">{{ ruleOpen ? '收起' : '查看 / 编辑规则' }}</button>
+        <button class="btn ghost" @click="openRule">
+          <PixelIcon name="log" :size="11" />{{ ruleOpen ? '收起' : '查看 / 编辑规则' }}
+        </button>
       </div>
 
       <div v-if="ruleOpen" style="margin-top: 10px">
@@ -105,7 +111,10 @@ onMounted(() => {
       </div>
     </div>
 
-    <div class="section-title"><span>模型</span><span class="mini">OpenAI 兼容接口</span></div>
+    <div class="section-title k-purple">
+      <span class="tt"><PixelIcon name="spark" :size="12" class="ic" />模型</span>
+      <span class="mini">OpenAI 兼容接口</span>
+    </div>
     <div class="card">
       <label class="row">
         <span>用 AI 打分</span>
@@ -120,7 +129,9 @@ onMounted(() => {
         <label class="lab">API Key</label>
         <div class="field">
           <input v-model="s.apiKey" class="input" :type="showKey ? 'text' : 'password'" placeholder="sk-..." />
-          <button class="btn ghost" @click="showKey = !showKey">{{ showKey ? '隐藏' : '显示' }}</button>
+          <button class="btn ghost" @click="showKey = !showKey">
+            <PixelIcon name="eye" :size="11" />{{ showKey ? '隐藏' : '显示' }}
+          </button>
         </div>
       </div>
       <div class="field col">
@@ -132,7 +143,9 @@ onMounted(() => {
       </div>
     </div>
 
-    <div class="section-title"><span>记账设置</span></div>
+    <div class="section-title k-yellow">
+      <span class="tt"><PixelIcon name="gear" :size="12" class="ic" />记账设置</span>
+    </div>
     <div class="card">
       <div class="field col">
         <label class="lab">数值单位</label>
@@ -159,12 +172,15 @@ onMounted(() => {
       </div>
     </div>
 
-    <div class="section-title"><span>数据</span><span class="mini">共 {{ totalValue }} · 离线本地</span></div>
+    <div class="section-title k-green">
+      <span class="tt"><PixelIcon name="db" :size="12" class="ic" />数据</span>
+      <span class="mini">共 {{ totalValue }} · 离线本地</span>
+    </div>
     <div class="card">
       <div class="field" style="flex-wrap: wrap">
-        <button class="btn ghost" @click="exportData">导出备份</button>
-        <button class="btn ghost" @click="pickFile">导入备份</button>
-        <button class="btn ghost danger" @click="doReset">清空数据</button>
+        <button class="btn ghost" @click="exportData"><PixelIcon name="download" :size="11" />导出备份</button>
+        <button class="btn ghost" @click="pickFile"><PixelIcon name="upload" :size="11" />导入备份</button>
+        <button class="btn ghost danger" @click="doReset"><PixelIcon name="trash" :size="11" />清空数据</button>
       </div>
       <input ref="fileInput" type="file" accept="application/json" hidden @change="onFile" />
       <div class="weak-hint">
