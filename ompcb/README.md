@@ -61,7 +61,20 @@ powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1
 Start-ScheduledTask -TaskName OMPCB
 ```
 
-注册的是**计划任务**而非 Windows 服务：注册服务要管理员权限，计划任务在当前用户下不用提权，内网自用足够。触发器为「登录时启动」，已关掉电池/空闲/超时相关的默认限制（默认 3 天会被强杀）。
+注册的是**计划任务**而非 Windows 服务：注册服务要管理员权限，计划任务在当前用户下不用提权，内网自用足够。默认触发器为「登录时启动」，已关掉电池/空闲/超时相关的默认限制（默认 3 天会被强杀）。
+
+**要开机就起（不用登录）**：登录触发器必须等有人登录，真正的「开机即启动」得让任务以 `SYSTEM` 账户运行，注册这一步要管理员权限。用**管理员 PowerShell** 跑：
+
+```powershell
+cd <项目根>
+powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1 -AtStartup
+```
+
+该模式会同时挂「开机（延迟 20 秒）」和「登录时」两个触发器，重复拉起由 `MultipleInstances=IgnoreNew` 挡掉。不想提权又想开机就用的替代方案：给 Windows 配自动登录，登录触发的任务照样会在开机后起来。
+
+启动日志写在 `data\logs\serve.log`（隐藏窗口启动时 console 输出会丢，失败只能靠它和 `LastTaskResult` 定位；超过 2MB 滚一份 `.1`）。换机器 / 搬过目录后**必须重跑安装脚本**——任务里存的是绝对路径，旧路径会让任务以 `0x8007010B`（ERROR_DIRECTORY）静默失败。
+
+数据库固定使用仓库内的 `data\ompcb.db`：`serve.ps1` 会显式设置 `OMPCB_DB`（若外层未设置），与备份脚本读同一个变量，不随工作目录漂移。
 
 访问 `http://localhost:4000`，同一局域网内其他设备用本机 IP 同端口。
 
@@ -90,9 +103,9 @@ scripts\deploy.bat -SkipInstall     # 等价于 deploy-quick.bat
 | `scripts\deploy-quick.bat` | **日常发布**，双击即可 |
 | `scripts\deploy.bat` | 完整发布（含 `npm install`），双击即可 |
 | `scripts\deploy.ps1` | 发布逻辑本体，上面两个 bat 都是它的壳 |
-| `scripts\serve.ps1` | 前台启动，排错看报错用；启动前自动备一份数据库 |
-| `scripts\install-autostart.ps1` | 注册自启，加 `-Uninstall` 卸载 |
-| `scripts\restore-autostart.ps1` | 换机器 / 项目路径变更后的首次启用：注册计划任务后交由 `deploy.ps1` 完成发布 |
+| `scripts\serve.ps1` | 前台启动，排错看报错用；启动前自动备一份数据库，日志写入 `data\logs\serve.log` |
+| `scripts\install-autostart.ps1` | 注册自启，加 `-Uninstall` 卸载；加 `-AtStartup`（需管理员）改为开机即启动 |
+| `scripts\restore-autostart.ps1` | 换机器 / 项目路径变更后的首次启用：注册计划任务后交由 `deploy.ps1` 完成发布（可带 `-AtStartup`） |
 | `scripts\check-status.ps1` | 探活：`/api/health` 状态码、计划任务状态、4000 端口监听 |
 | `scripts\install-backup-task.ps1` | 注册每日 12:00 备份计划任务 `OMPCB-Backup`，`-Uninstall` 卸载 |
 | `scripts\backup-db.mjs` | 备份本体（`npm run backup` / `npm run backup:status` 都调它） |

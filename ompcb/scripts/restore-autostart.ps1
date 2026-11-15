@@ -14,7 +14,8 @@
 param(
     [string]$TaskName = 'OMPCB',
     [int]$Port = 4000,
-    [switch]$SkipInstall
+    [switch]$SkipInstall,
+    [switch]$AtStartup
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,7 +47,8 @@ if ($existing) {
 } else {
     Write-Host "[ompcb] 注册计划任务 '$TaskName' ..." -ForegroundColor Yellow
 }
-& (Join-Path $PSScriptRoot 'install-autostart.ps1') -TaskName $TaskName
+# -AtStartup 透传：需要「开机即启动」时用管理员 PowerShell 运行本脚本并带上该开关
+& (Join-Path $PSScriptRoot 'install-autostart.ps1') -TaskName $TaskName -AtStartup:$AtStartup
 
 # ---- 3. 交给 deploy.ps1 完成发布 ------------------------------------------
 # deploy.ps1 会：停旧服务 → npm install（除 -SkipInstall）→ 强制构建

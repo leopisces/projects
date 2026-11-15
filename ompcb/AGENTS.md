@@ -31,6 +31,7 @@ PCB 打样物料管理工具：BOM 清单 + 库存台账，按制造商料号（
 - `npm run backup` — 生成一份一致性快照到 `data/backups/`（SQLite 在线备份 API，自动合并 WAL；保留最近 14 份）
 - `npm run backup:status` — 查看各目标最近备份时间 / 份数 / 占用 / 同步盘冲突副本
 - 备份计划任务：`scripts\install-backup-task.ps1`（每日 12:00）；`-Uninstall` 卸载
+- 自启：`scripts\install-autostart.ps1`（默认登录时启动，无需管理员）；开机即启动加 `-AtStartup`，需**管理员** PowerShell。项目目录搬家后必须重跑，否则任务指向旧路径会以 `0x8007010B` 静默失败；运行日志在 `data\logs\serve.log`
 - 发布：`scripts\deploy-quick.bat`（日常）/ `scripts\deploy.bat`（改过 package.json 时）
 
 ## 3. 关键约定（完整版在 docs/开发规范.md 与 CLAUDE.md）
