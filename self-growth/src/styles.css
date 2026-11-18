@@ -2116,7 +2116,7 @@ body::after {
 }
 
 .splash.out {
-  animation: px-splash-out 0.4s steps(6, end) both;
+  animation: px-splash-out 0.5s steps(6, end) both;
 }
 
 /* 背景棋盘格：隔着几格亮一点，像地图底纹 */
@@ -2161,7 +2161,7 @@ body::after {
   letter-spacing: 0.24em;
   color: #ffe873;
   text-shadow: 3px 3px 0 var(--ink), 0 0 18px rgba(255, 210, 74, 0.55);
-  animation: px-title-in 0.5s steps(6, end) both;
+  animation: px-title-in 0.7s steps(8, end) both;
 }
 
 .splash-sub {
@@ -2169,7 +2169,7 @@ body::after {
   font-size: 11px;
   letter-spacing: 0.2em;
   color: var(--text-dim);
-  animation: px-in 0.5s steps(4, end) 0.12s both;
+  animation: px-in 0.7s steps(6, end) 0.2s both;
 }
 
 .splash-bar {
@@ -2195,7 +2195,7 @@ body::after {
 }
 
 .splash-bar.run i {
-  animation: px-load 1s steps(12, end) forwards;
+  animation: px-load 1.5s steps(18, end) forwards;
 }
 
 .splash-hint {

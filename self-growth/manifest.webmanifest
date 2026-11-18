@@ -1,7 +1,7 @@
 {
   "name": "成长账本",
   "short_name": "成长账本",
-  "description": "先挣积分，再兑换奖励",
+  "description": "自我成长，超越昨天的自己",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
