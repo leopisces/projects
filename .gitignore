@@ -15,3 +15,8 @@
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# ---- 外部参考源码（不入库，需要时重新 clone）----
+# dify/ = Dify 上游源码本地副本（16k 文件 / 148MB）。仓库是公开的，
+# 且上游迭代快，故只作本地参考：更新方式 git clone https://github.com/langgenius/dify.git
+/dify/
